@@ -41,10 +41,11 @@ export interface AppState {
   onboarded: boolean;
   names: { dadi: string; child: string };
   loves: { dadi: string[]; child: string[] };
-  months: Month[]; // newest first; months[0] is the map in progress
+  months: Month[]; // maps (a town, a hillside…), newest first; months[0] is the map in progress
   drawings: Record<string, Drawing>;
   prompt: Prompt | null;
   recentPrompts: string[];
   scanning: { promptId: string; dadi?: string } | null; // a pair in progress
   lastFresh: { placeId: string; slot: number } | null;  // newest pair, rises on the map once
+  examples?: boolean; // the finished example maps were added
 }

@@ -2,23 +2,50 @@
 import { useSyncExternalStore } from 'react';
 import { get, set, del, keys } from 'idb-keyval';
 import type { AppState, Drawing, Month, Pair, Place, PersonId, Prompt } from './types';
-import { LOVE_PROMPTS, THEMES, ICON, guessFor, fillFor } from './content';
+import { LOVE_PROMPTS, THEMES, ICON, MAPS, EXAMPLE_PAIRS, guessFor, fillFor } from './content';
 
 const KEY = 'dadis-map:state';
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 export const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
-const monthName = () => new Date().toLocaleString('en', { month: 'long' });
 
+/** The n-th map: a kind of place (a town, a hillside, an animal sanctuary…) whose four places are named for it. */
 function newMonth(n: number): Month {
-  const id = uid();
+  const kind = MAPS[n % MAPS.length];
   return {
-    id, name: monthName(),
-    places: THEMES.map((t, i): Place => ({ id: uid(), index: i, name: t.names[n % t.names.length], theme: t.theme, shape: t.shape, color: t.color, status: i === 0 ? 'current' : 'locked', pairs: [] })),
+    id: uid(), name: kind.name,
+    places: THEMES.map((t, i): Place => ({ id: uid(), index: i, name: kind.places[i], theme: t.theme, shape: t.shape, color: t.color, status: i === 0 ? 'current' : 'locked', pairs: [] })),
   };
 }
 
+function sampleDrawing(s: AppState, who: PersonId, promptId: string, kind: string, createdAt = Date.now()): Drawing {
+  const g = guessFor(kind), id = uid();
+  const d: Drawing = { id, personId: who, promptId, createdAt, paths: { ...ICON[kind] }, kind, label: g.label, motion: g.motion, place: g.place, fillColor: fillFor(kind), confidence: 1, alternatives: [], source: 'sample' };
+  s.drawings[id] = d; return d;
+}
+
+/** Two finished maps to start with (after the one in progress), so the stack and the scrapbook aren't empty. */
+function addExampleMaps(s: AppState) {
+  const DAY = 86400000;
+  for (const n of [1, 2]) {
+    const m = newMonth(n);
+    m.places.forEach((p, pi) => {
+      p.status = 'done';
+      const pool = EXAMPLE_PAIRS[p.theme];
+      for (let k = 0; k < 7; k++) {
+        const [prompt, a, b] = pool[(k + n - 1) % pool.length], pid = uid(), at = Date.now() - ((n * 4 - pi) * 7 - k) * DAY;
+        const d = sampleDrawing(s, 'dadi', pid, n === 1 ? a : b, at), c = sampleDrawing(s, 'child', pid, n === 1 ? b : a, at);
+        p.pairs.push({ promptId: pid, prompt, dadi: d.id, child: c.id, slot: k });
+      }
+    });
+    s.months.push(m);
+  }
+  s.examples = true;
+}
+
 function fresh(): AppState {
-  return { version: 1, onboarded: false, names: { dadi: 'Dadi', child: 'Anu' }, loves: { dadi: [], child: [] }, months: [newMonth(0)], drawings: {}, prompt: null, recentPrompts: [], scanning: null, lastFresh: null };
+  const s: AppState = { version: 1, onboarded: false, names: { dadi: 'Dadi', child: 'Anu' }, loves: { dadi: [], child: [] }, months: [newMonth(0)], drawings: {}, prompt: null, recentPrompts: [], scanning: null, lastFresh: null };
+  addExampleMaps(s);
+  return s;
 }
 
 let state: AppState = fresh();
@@ -36,7 +63,16 @@ export function useApp(): AppState { return useSyncExternalStore(cb => { subs.ad
 export function useLoaded() { return useSyncExternalStore(cb => { subs.add(cb); return () => subs.delete(cb); }, () => loaded); }
 
 export async function load() {
-  try { const s = await get<AppState>(KEY); if (s && s.version === 1) state = { ...fresh(), ...s }; } catch (e) { console.warn('load failed', e); }
+  try {
+    const s = await get<AppState>(KEY);
+    if (s && s.version === 1) {
+      state = { ...fresh(), ...s };
+      // maps used to be named after months; name them for kinds of places instead, and add the example maps once
+      const months = new Set(Array.from({ length: 12 }, (_, i) => new Date(2000, i, 1).toLocaleString('en', { month: 'long' })));
+      state.months.forEach((m, i) => { if (months.has(m.name)) m.name = MAPS[(state.months.length - 1 - i) % MAPS.length].name; });
+      if (!s.examples) { addExampleMaps(state); persist(); }
+    }
+  } catch (e) { console.warn('load failed', e); }
   loaded = true; emit();
 }
 
@@ -116,7 +152,7 @@ export function replaceDrawing(oldId: string, d: Drawing) {
 export function updateDrawing(id: string, patch: Partial<Drawing>) { update(s => { if (s.drawings[id]) Object.assign(s.drawings[id], patch); }); }
 export function clearFresh() { if (state.lastFresh) update(s => { s.lastFresh = null; }); }
 
-/** Finish the place: reveal its theme, unlock the next one; a fourth place finishes the month. */
+/** Finish the place: reveal its theme, unlock the next one; a fourth place finishes the map and starts the next kind of map. */
 export function completePlace() {
   update(s => {
     const m = s.months[0], i = m.places.findIndex(p => p.status === 'current');
@@ -145,11 +181,7 @@ export function addSamplePairs(n: number) {
   update(s => {
     const place = s.months[0].places.find(p => p.status === 'current'); if (!place) return;
     for (let k = 0; k < n && place.pairs.length < 7; k++) {
-      const pid = uid(), mk = (who: PersonId): Drawing => {
-        const kind = kinds[Math.floor(Math.random() * kinds.length)], g = guessFor(kind), id = uid();
-        const dr: Drawing = { id, personId: who, promptId: pid, createdAt: Date.now(), paths: { ...ICON[kind] }, kind, label: g.label, motion: g.motion, place: g.place, fillColor: fillFor(kind), confidence: 1, alternatives: [], source: 'sample' };
-        s.drawings[id] = dr; return dr;
-      };
+      const pid = uid(), mk = (who: PersonId) => sampleDrawing(s, who, pid, kinds[Math.floor(Math.random() * kinds.length)]);
       const a = mk('dadi'), b = mk('child');
       place.pairs.push({ promptId: pid, prompt: 'Sample: ' + a.kind + ' & ' + b.kind, dadi: a.id, child: b.id, slot: place.pairs.length });
     }

@@ -1,6 +1,6 @@
 # Dadi's Map
 
-A calm tablet app shared by a grandmother (Dadi) and her grandchild. Each day there is one drawing prompt. Each of them draws an answer on paper and scans it. The app traces their own lines, works out what was drawn, and brings it to life as a small hand-drawn 3D object on a floating island. Seven pairs finish a place and reveal its hidden theme, four places make a monthly map, and every scan is kept in a scrapbook.
+A calm tablet app shared by a grandmother (Dadi) and her grandchild. Each day there is one drawing prompt. Each of them draws an answer on paper and scans it. The app traces their own lines, works out what was drawn, and brings it to life as a small hand-drawn 3D object on a floating island. Seven pairs finish a place and reveal its hidden theme, four places make a map (a town, a hillside, an animal sanctuary…), and every scan is kept in a scrapbook.
 
 Built from the design handoff in [`design_handoff/`](design_handoff/README.md): Vite, React, TypeScript, three.js and IndexedDB. It is made for iPad, in landscape or portrait, and can be added to the Home Screen to run full-screen.
 
@@ -54,7 +54,7 @@ This saves the weights to `public/models/doodlenet/`.
 
 ## Data
 
-Everything is stored on the device in IndexedDB (`src/lib/store.ts`), following the data model in the handoff: people, loves, months → places → pairs → drawings, with the paths stored rather than meshes. Scans are kept as JPEG blobs. There are no streaks or dates on the map, and a missed day carries the prompt over. Prompts come from Claude, using both people's picks and the hidden theme of the place, or from a curated list when Claude isn't available.
+Everything is stored on the device in IndexedDB (`src/lib/store.ts`), following the data model in the handoff: people, loves, maps → places → pairs → drawings, with the paths stored rather than meshes. Scans are kept as JPEG blobs. There are no streaks or dates on the map, and a missed day carries the prompt over. Prompts come from Claude, using both people's picks and the hidden theme of the place, or from a curated list when Claude isn't available.
 
 The **gear** on the Today screen opens a few tools for trying the app out: rename people, get a new prompt now, add sample pairs so you can see the reveal without waiting a week, or start over.
 

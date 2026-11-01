@@ -40,14 +40,35 @@ function hash(s: string) { let h = 0; for (let i = 0; i < s.length; i++) h = (h 
 
 export const TILES: [string, string][] = [['Cats', 'cat'], ['Birds', 'bird'], ['Mangoes', 'mango'], ['Chai', 'chai'], ['Diwali', 'diya'], ['Kites', 'kite'], ['Songs', 'note'], ['Rivers', 'waves'], ['Trees', 'tree'], ['Moon nights', 'moon'], ['Fish', 'fish'], ['Home', 'home']];
 
-export interface ThemeDef { theme: string; names: string[]; color: string; shape: 'A' | 'B' | 'C' | 'D'; prompts: string[] }
-/** Four themes per month; each month uses the next name in the list, so maps stay fresh. */
+export interface ThemeDef { theme: string; color: string; shape: 'A' | 'B' | 'C' | 'D'; prompts: string[] }
+/** The four hidden themes of every map's places (water, growing things, food and things, sky). */
 export const THEMES: ThemeDef[] = [
-  { theme: 'river', names: ['The River', 'The Pond', 'The Beach', 'The Lake'], color: '#8CCFF0', shape: 'A', prompts: ['Draw something that moves', 'Draw something that floats', 'Draw something that lives in water', 'Draw something shiny', 'Draw something that makes a splash', 'Draw something that sings', 'Draw something you see on a boat ride', 'Draw something wet'] },
-  { theme: 'garden', names: ['The Garden', 'The Courtyard', 'The Orchard', 'The Park'], color: '#9BD770', shape: 'B', prompts: ['Draw something that grows', 'Draw something with leaves', 'Draw a tiny creature', 'Draw something green', 'Draw something that smells nice', 'Draw a place to rest', 'Draw something sweet from a tree', 'Draw a morning visitor'] },
-  { theme: 'market', names: ['The Market', 'The Bazaar', 'The Fair', 'The Kitchen'], color: '#F6C778', shape: 'C', prompts: ['Draw your favourite fruit', 'Draw something round', 'Draw something you drink', 'Draw something you carry', 'Draw a treat', 'Draw something from a festival', 'Draw something colourful', 'Draw something that makes a sound'] },
-  { theme: 'rooftop', names: ['The Rooftop', 'The Terrace', 'The Balcony', 'The Hilltop'], color: '#F2A28A', shape: 'D', prompts: ['Draw something you see at night', 'Draw something that flies', 'Draw something in the sky', 'Draw something warm', 'Draw something that lights up', 'Draw something that waves', 'Draw something far away', 'Draw something you hold with both hands'] },
+  { theme: 'river', color: '#8CCFF0', shape: 'A', prompts: ['Draw something that moves', 'Draw something that floats', 'Draw something that lives in water', 'Draw something shiny', 'Draw something that makes a splash', 'Draw something that sings', 'Draw something you see on a boat ride', 'Draw something wet'] },
+  { theme: 'garden', color: '#9BD770', shape: 'B', prompts: ['Draw something that grows', 'Draw something with leaves', 'Draw a tiny creature', 'Draw something green', 'Draw something that smells nice', 'Draw a place to rest', 'Draw something sweet from a tree', 'Draw a morning visitor'] },
+  { theme: 'market', color: '#F6C778', shape: 'C', prompts: ['Draw your favourite fruit', 'Draw something round', 'Draw something you drink', 'Draw something you carry', 'Draw a treat', 'Draw something from a festival', 'Draw something colourful', 'Draw something that makes a sound'] },
+  { theme: 'rooftop', color: '#F2A28A', shape: 'D', prompts: ['Draw something you see at night', 'Draw something that flies', 'Draw something in the sky', 'Draw something warm', 'Draw something that lights up', 'Draw something that waves', 'Draw something far away', 'Draw something you hold with both hands'] },
 ];
+
+/** Each map is a kind of place; its four places are named for it, in the order of THEMES (water, garden, market, sky). */
+export interface MapKind { name: string; places: [string, string, string, string] }
+export const MAPS: MapKind[] = [
+  { name: 'The Town', places: ['The River', 'The Garden', 'The Market', 'The Rooftop'] },
+  { name: 'The Hillside', places: ['The Stream', 'The Tea Garden', 'The Village Fair', 'The Hilltop'] },
+  { name: 'The Animal Sanctuary', places: ['The Watering Hole', 'The Grassland', 'The Fruit Grove', 'The Treetops'] },
+  { name: 'The City', places: ['The Canal', 'The Park', 'The Bazaar', 'The Terrace'] },
+  { name: 'The Seaside', places: ['The Beach', 'The Coconut Grove', 'The Fish Market', 'The Lighthouse'] },
+  { name: 'The Forest', places: ['The Waterfall', 'The Clearing', 'The Berry Patch', 'The Treehouse'] },
+  { name: 'The Village', places: ['The Pond', 'The Courtyard', 'The Kitchen', 'The Balcony'] },
+  { name: 'The Desert', places: ['The Oasis', 'The Cactus Garden', 'The Camel Fair', 'The Dunes'] },
+];
+
+/** Finished example maps: [prompt, Dadi's drawing, the grandchild's drawing] per theme, drawn with the sample icons. */
+export const EXAMPLE_PAIRS: Record<string, [string, string, string][]> = {
+  river: [['Draw something that moves', 'waves', 'fish'], ['Draw something that floats', 'diya', 'boat'], ['Draw something shiny', 'fish', 'sun'], ['Draw something that sings', 'bird', 'note'], ['Draw something you see on a boat ride', 'fish', 'boat'], ['Draw something that lives in water', 'fish', 'fish'], ['Draw something wet', 'waves', 'boat'], ['Draw something that makes a splash', 'boat', 'fish']],
+  garden: [['Draw something that grows', 'tree', 'flower'], ['Draw something with leaves', 'tree', 'flower'], ['Draw a morning visitor', 'bird', 'cat'], ['Draw something green', 'tree', 'tree'], ['Draw something that smells nice', 'flower', 'chai'], ['Draw a place to rest', 'home', 'tree'], ['Draw something sweet from a tree', 'mango', 'mango'], ['Draw a tiny creature', 'bird', 'cat']],
+  market: [['Draw your favourite fruit', 'mango', 'mango'], ['Draw something round', 'sun', 'drum'], ['Draw something you drink', 'chai', 'chai'], ['Draw something from a festival', 'diya', 'kite'], ['Draw something colourful', 'kite', 'flower'], ['Draw something that makes a sound', 'bell', 'drum'], ['Draw a treat', 'mango', 'chai'], ['Draw something you carry', 'drum', 'kite']],
+  rooftop: [['Draw something you see at night', 'moon', 'diya'], ['Draw something that flies', 'kite', 'bird'], ['Draw something in the sky', 'sun', 'moon'], ['Draw something warm', 'sun', 'chai'], ['Draw something that lights up', 'diya', 'moon'], ['Draw something far away', 'moon', 'tree'], ['Draw something you hold with both hands', 'chai', 'drum'], ['Draw something that waves', 'waves', 'flower']],
+};
 export const themeLabel = (t: string) => ({ river: 'River', garden: 'Garden', market: 'Market', rooftop: 'Rooftop' } as Record<string, string>)[t] || t;
 
 /** Prompts drawn from the onboarding picks. */
