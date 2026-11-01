@@ -27,13 +27,13 @@ export async function process(img: Img): Promise<ScanResult> {
   return r.result;
 }
 
-/** Grab a frame from a video or image element into RGBA pixels (longest side ≤ maxSide). */
-export function grab(src: HTMLVideoElement | HTMLImageElement | ImageBitmap, maxSide: number): Img | null {
+/** Grab a frame from a video or image element into RGBA pixels (longest side ≤ maxSide), turned the right way round when flip is set. */
+export function grab(src: HTMLVideoElement | HTMLImageElement | ImageBitmap, maxSide: number, flip = false): Img | null {
   const w0 = 'videoWidth' in src ? src.videoWidth : src.width, h0 = 'videoHeight' in src ? src.videoHeight : src.height;
   if (!w0 || !h0) return null;
   const s = Math.min(1, maxSide / Math.max(w0, h0)), w = Math.round(w0 * s), h = Math.round(h0 * s);
   const c = document.createElement('canvas'); c.width = w; c.height = h;
-  const x = c.getContext('2d', { willReadFrequently: true })!; x.drawImage(src as CanvasImageSource, 0, 0, w, h);
+  const x = c.getContext('2d', { willReadFrequently: true })!; if (flip) { x.translate(w, 0); x.scale(-1, 1); } x.drawImage(src as CanvasImageSource, 0, 0, w, h);
   const d = x.getImageData(0, 0, w, h);
   return { width: w, height: h, data: d.data };
 }

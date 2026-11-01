@@ -151,6 +151,25 @@ describe('scan pipeline', () => {
     });
   }
 
+  // Held up to the camera: a tilted sheet in front of a light wall, a hand at each side, a crayon drawing
+  // that fills much of it (so the sheet is not one plain region), and a shirt below.
+  it('finds a sheet held up in front of a light wall, crayon drawing and all', () => {
+    const img = canvas(640, 480, [214, 208, 198]); // light wall
+    fillPoly(img, [[120, 400], [520, 400], [560, 480], [80, 480]], [70, 110, 170]); // shirt
+    const quad: Pt[] = [[175, 70], [470, 95], [450, 400], [150, 380]];
+    fillPoly(img, quad, [250, 250, 247]);
+    fillPoly(img, ellipse(250, 170, 55, 45), [240, 90, 60]); // a red crayon sun
+    fillPoly(img, [[200, 330], [420, 340], [415, 375], [195, 362]], [80, 170, 70]); // green grass
+    stroke(img, [[300, 200], [330, 140], [360, 200], [300, 200]], 3, [40, 40, 140]); // a house roof
+    stroke(img, [[305, 200], [305, 300], [355, 300], [355, 200]], 3, [40, 40, 140]);
+    fillPoly(img, [[0, 180], [0, 300], [190, 260], [200, 210]], [205, 150, 120]); // left hand
+    fillPoly(img, [[640, 200], [640, 330], [445, 290], [440, 240]], [205, 150, 120]); // right hand
+    const q = detectPaper(img);
+    expect(q).not.toBeNull();
+    quad.forEach((c, i) => expect(Math.hypot(q![i][0] - c[0], q![i][1] - c[1])).toBeLessThan(24));
+    expect(processScan(img)).toMatchObject({ ok: true });
+  });
+
   it('sees no hands when the sheet is clear', () => {
     expect(detectSheet(photo().img).hands).toBe(false);
   });

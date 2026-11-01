@@ -65,19 +65,6 @@ function boxBlur(src: Float32Array, w: number, h: number, r: number): Float32Arr
   return out;
 }
 
-function otsu(g: Float32Array): number {
-  const hist = new Float64Array(256);
-  for (let i = 0; i < g.length; i++) hist[clamp(Math.round(g[i] * 255), 0, 255)]++;
-  let sum = 0; for (let i = 0; i < 256; i++) sum += i * hist[i];
-  let sumB = 0, wB = 0, best = 0, thr = 128;
-  for (let t = 0; t < 256; t++) {
-    wB += hist[t]; if (!wB) continue; const wF = g.length - wB; if (!wF) break;
-    sumB += t * hist[t]; const mB = sumB / wB, mF = (sum - sumB) / wF, v = wB * wF * (mB - mF) ** 2;
-    if (v > best) { best = v; thr = t; }
-  }
-  return thr / 255;
-}
-
 // Binary morphology on Uint8 masks (square structuring element, separable).
 function dilate(m: Uint8Array, w: number, h: number, r: number): Uint8Array {
   if (r <= 0) return m.slice();
@@ -207,38 +194,225 @@ function skinAt(r: number, g: number, b: number): boolean {
   const y = 0.299 * r + 0.587 * g + 0.114 * b, cr = 128 + 0.5 * r - 0.4187 * g - 0.0813 * b, cb = 128 - 0.1687 * r - 0.3313 * g + 0.5 * b;
   return y > 35 && cr >= 135 && cr <= 180 && cb >= 85 && cb <= 135 && r > b;
 }
-interface Classes { w: number; h: number; paper: Uint8Array; skin: Uint8Array; grey: Uint8Array }
-/** Per pixel: paper (bright and colourless once the light's colour is removed, not skin), skin, and soft grey (shadows). */
+interface Classes { w: number; h: number; g: Float32Array; sat: Float32Array; gm: Float32Array; ex: Float32Array; ey: Float32Array; skin: Uint8Array; grey: Uint8Array }
+/** Per pixel, once the light's colour is removed: brightness, colourfulness, edge strength, skin, and soft grey (shadows). */
 function classify(img: Img): Classes {
   const { width: w, height: h, data } = img, wl = whiteLevel(img), n = w * h;
-  const g = new Float32Array(n), sat = new Float32Array(n), skin = new Uint8Array(n);
+  const g0 = new Float32Array(n), u0 = new Float32Array(n), v0 = new Float32Array(n), sat = new Float32Array(n), skin = new Uint8Array(n);
   for (let i = 0, j = 0; i < n; i++, j += 4) {
     const r = Math.min(255, (data[j] * 255) / wl[0]), gg = Math.min(255, (data[j + 1] * 255) / wl[1]), b = Math.min(255, (data[j + 2] * 255) / wl[2]);
     const mx = Math.max(r, gg, b), mn = Math.min(r, gg, b);
-    g[i] = (0.299 * r + 0.587 * gg + 0.114 * b) / 255; sat[i] = mx ? (mx - mn) / mx : 0; skin[i] = skinAt(r, gg, b) ? 1 : 0;
+    g0[i] = (0.299 * r + 0.587 * gg + 0.114 * b) / 255; sat[i] = mx ? (mx - mn) / mx : 0; skin[i] = skinAt(r, gg, b) ? 1 : 0;
+    u0[i] = (r - gg) / 255; v0[i] = (b - gg) / 255; // colour, apart from brightness
   }
-  const t = Math.max(otsu(g), 0.5), paper = new Uint8Array(n), grey = new Uint8Array(n);
-  for (let i = 0; i < n; i++) {
-    paper[i] = g[i] > t && sat[i] < 0.22 && !skin[i] ? 1 : 0;
-    grey[i] = !paper[i] && !skin[i] && sat[i] < 0.25 && g[i] > 0.3 ? 1 : 0;
+  // edge strength: a change in brightness, or in colour (white paper on a pale pink wall)
+  const g = boxBlur(g0, w, h, 1), u = boxBlur(u0, w, h, 1), v = boxBlur(v0, w, h, 1), gm = new Float32Array(n), ex = new Float32Array(n), ey = new Float32Array(n), grey = new Uint8Array(n);
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    const i = y * w + x;
+    // the strongest of the three channels gives the edge its strength and direction
+    let bx = g[i + 1] - g[i - 1], by = g[i + w] - g[i - w], bm = Math.hypot(bx, by);
+    for (const ch of [u, v]) { const cx = 0.8 * (ch[i + 1] - ch[i - 1]), cy = 0.8 * (ch[i + w] - ch[i - w]), cm = Math.hypot(cx, cy); if (cm > bm) { bx = cx; by = cy; bm = cm; } }
+    gm[i] = bm / 2; ex[i] = bx; ey[i] = by;
   }
-  return { w, h, paper, skin, grey };
+  for (let i = 0; i < n; i++) grey[i] = !skin[i] && sat[i] < 0.25 && g[i] > 0.3 ? 1 : 0;
+  return { w, h, g, sat, gm, ex, ey, skin, grey };
 }
 
-/** The sheet: the bright, colourless region that is biggest and nearest the middle of the view. */
-function sheet(c: Classes): { m: Uint8Array; size: number } | null {
-  const { w, h } = c;
-  let m = erode(dilate(c.paper, w, h, 2), w, h, 2); // close over pencil lines
-  m = dilate(erode(m, w, h, 1), w, h, 1); // open away thin bright bits
-  const { lab, sizes } = label(m, w, h, false), score = new Float64Array(sizes.length);
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const l = lab[y * w + x]; if (!l) continue;
-    score[l] += 1 - Math.min(0.9, Math.hypot((x + 0.5) / w - 0.5, (y + 0.5) / h - 0.5) * 1.4);
+/**
+ * Canny edges: thin lines along the strongest changes in brightness, kept where they connect to a strong edge,
+ * so a faint but continuous edge (a white sheet in front of a white wall) still counts.
+ */
+function canny(c: Classes): Uint8Array {
+  const { w, h, gm, ex, ey } = c, n = w * h, nms = new Float32Array(n);
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    const i = y * w + x, m = gm[i]; if (m < 0.006) continue;
+    const gx = ex[i], gy = ey[i], a = Math.abs(Math.atan2(gy, gx)) % Math.PI;
+    // neighbours across the edge
+    const [o1, o2] = a < Math.PI / 8 || a >= (7 * Math.PI) / 8 ? [1, -1] : a < (3 * Math.PI) / 8 ? (gx * gy > 0 ? [w + 1, -w - 1] : [w - 1, -w + 1]) : a < (5 * Math.PI) / 8 ? [w, -w] : gx * gy > 0 ? [w - 1, -w + 1] : [w + 1, -w - 1];
+    if (m >= gm[i + o1] && m >= gm[i + o2]) nms[i] = m;
   }
-  let best = 0; for (let l = 1; l < sizes.length; l++) if (score[l] > score[best]) best = l;
-  if (!best || sizes[best] < w * h * 0.08) return null;
-  const o = new Uint8Array(w * h); for (let i = 0; i < o.length; i++) if (lab[i] === best) o[i] = 1;
-  return { m: o, size: sizes[best] };
+  const sorted = Float32Array.from(gm).sort(), hi = Math.min(0.045, Math.max(0.018, sorted[Math.floor(n * 0.85)])), lo = Math.max(0.006, hi * 0.3);
+  const e = new Uint8Array(n), st: number[] = [];
+  for (let i = 0; i < n; i++) if (nms[i] >= hi) { e[i] = 1; st.push(i); }
+  while (st.length) {
+    const i = st.pop()!, x = i % w;
+    for (const d of [-w - 1, -w, -w + 1, -1, 1, w - 1, w, w + 1]) {
+      const j = i + d; if (j < 0 || j >= n || Math.abs((j % w) - x) > 1 || e[j] || nms[j] < lo) continue;
+      e[j] = 1; st.push(j);
+    }
+  }
+  return e;
+}
+
+interface Found { c: Classes; m: Uint8Array; q: Pt[] | null; score: number }
+
+interface Line { r: number; t: number; v: number } // x cos t + y sin t = r
+
+/** The strongest straight lines among the edges (Hough transform): candidate sides of the sheet. */
+function houghLines(e: Uint8Array, w: number, h: number, k: number): Line[] {
+  const T = 180, D = Math.ceil(Math.hypot(w, h)), R = 2 * D + 1, acc = new Float32Array(T * R);
+  const cs = Float32Array.from({ length: T }, (_, t) => Math.cos((t * Math.PI) / T)), sn = Float32Array.from({ length: T }, (_, t) => Math.sin((t * Math.PI) / T));
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (e[y * w + x]) for (let t = 0; t < T; t++) acc[t * R + Math.round(x * cs[t] + y * sn[t]) + D]++;
+  const out: Line[] = [], minVotes = Math.min(w, h) * 0.12;
+  for (let n = 0; n < k; n++) {
+    let bi = 0; for (let i = 1; i < acc.length; i++) if (acc[i] > acc[bi]) bi = i;
+    if (acc[bi] < minVotes) break;
+    const t = Math.floor(bi / R), r = (bi % R) - D; out.push(refineLine(e, w, h, { r, t: (t * Math.PI) / T, v: acc[bi] }));
+    // clear the neighbourhood (theta wraps round with rho flipped)
+    for (let dt = -8; dt <= 8; dt++) for (let dr = -8; dr <= 8; dr++) {
+      let tt = t + dt, rr = r + dr; if (tt < 0) { tt += T; rr = -rr; } else if (tt >= T) { tt -= T; rr = -rr; }
+      const ri = rr + D; if (ri >= 0 && ri < R) acc[tt * R + ri] = 0;
+    }
+  }
+  return out;
+}
+/** Fit a line exactly to the edge pixels near it (the Hough bins are a degree wide: a few pixels off at the ends). */
+function refineLine(e: Uint8Array, w: number, h: number, l: Line): Line {
+  const c = Math.cos(l.t), s = Math.sin(l.t);
+  let n = 0, mx = 0, my = 0, sxx = 0, syy = 0, sxy = 0;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (e[y * w + x] && Math.abs(x * c + y * s - l.r) < 2.5) { n++; mx += x; my += y; sxx += x * x; syy += y * y; sxy += x * y; }
+  if (n < 10) return l;
+  mx /= n; my /= n; const a = sxx / n - mx * mx, b = sxy / n - mx * my, d = syy / n - my * my;
+  const t = 0.5 * Math.atan2(2 * b, a - d) + Math.PI / 2; // normal of the best-fit direction
+  let nt = ((t % Math.PI) + Math.PI) % Math.PI; const dt = Math.abs(nt - l.t) % Math.PI;
+  if (Math.min(dt, Math.PI - dt) > 0.1) nt = l.t; // keep the Hough line if the fit wanders off
+  return { r: mx * Math.cos(nt) + my * Math.sin(nt), t: nt, v: l.v };
+}
+function meetLines(a: Line, b: Line): Pt | null {
+  const c1 = Math.cos(a.t), s1 = Math.sin(a.t), c2 = Math.cos(b.t), s2 = Math.sin(b.t), d = c1 * s2 - s1 * c2;
+  return Math.abs(d) < 1e-6 ? null : [(a.r * s2 - b.r * s1) / d, (b.r * c1 - a.r * c2) / d];
+}
+
+/**
+ * Find the sheet the way a document scanner does: many candidates, each scored on what makes a sheet a sheet.
+ * Candidates come from paper-coloured areas at several brightness levels, from smooth areas, from areas walled in
+ * by edges, and from the strongest straight edges paired up as four sides (so a drawing on the sheet, or a face
+ * in front of it, does not break it up). A sheet's sides are real edges, it fills its four-sided outline (hands over
+ * it count), its corners are sensible, and it is a good size near the middle. A white wall, a shirt or a table
+ * fails where the sheet passes. q is null when the sheet fills the view (its sides are the frame); m is still the sheet.
+ */
+function findSheet(img: Img, maxSide: number, log?: object[], flat = false): Found {
+  const small = resize(img, maxSide), c = classify(small), { w, h, g, sat, gm, skin } = c, N = w * h;
+  const at = (x: number, y: number) => Math.min(h - 1, Math.max(0, Math.round(y))) * w + Math.min(w - 1, Math.max(0, Math.round(x)));
+  const ce = canny(c), near = dilate(ce, w, h, 2);
+  let best: Found = { c, m: new Uint8Array(N), q: null, score: 0 }, whole = best;
+
+  // edge support of a side: the fraction of it (in view, not under a hand) that runs along a real edge
+  const sides = (q: Pt[]) => {
+    let pass = 0, seen = 0, total = 0, onFrame = 0, weakest = 1, lighter = 0;
+    const cx = q.reduce((s, p) => s + p[0], 0) / 4, cy = q.reduce((s, p) => s + p[1], 0) / 4;
+    for (let k = 0; k < 4; k++) {
+      const a = q[k], b = q[(k + 1) % 4], L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, steps = Math.max(6, Math.round(L / 2));
+      let nx = -(b[1] - a[1]) / L, ny = (b[0] - a[0]) / L;
+      if (((a[0] + b[0]) / 2 - cx) * nx + ((a[1] + b[1]) / 2 - cy) * ny < 0) { nx = -nx; ny = -ny; } // outward
+      let sp = 0, ss = 0;
+      for (let s = 1; s < steps; s++) {
+        const px = a[0] + ((b[0] - a[0]) * s) / steps, py = a[1] + ((b[1] - a[1]) * s) / steps; total++;
+        if (px < 3 || py < 3 || px > w - 4 || py > h - 4) { onFrame++; continue; }
+        const ii = at(px - nx * 3, py - ny * 3), oo = at(px + nx * 3, py + ny * 3);
+        if (skin[ii] || skin[oo]) continue;
+        seen++; ss++; if (g[ii] > g[oo] - 0.03) lighter++;
+        let e = 0; for (let t = -2; t <= 2; t++) e = Math.max(e, gm[at(px + nx * t, py + ny * t)]);
+        const diff = Math.abs(g[ii] - g[oo]);
+        if ((e > 0.035 && diff > 0.05) || (near[at(px, py)] && diff > 0.02)) { pass++; sp++; } // a clear edge, or a faint one Canny traced
+      }
+      if (ss >= steps * 0.3) weakest = Math.min(weakest, sp / ss);
+    }
+    return { pass, seen, total, onFrame, cx, cy, weakest, lighter: seen ? lighter / seen : 1 };
+  };
+
+  const consider = (q: Pt[], cm: Uint8Array, strict = false) => {
+    const qa = polyArea(q); if (qa < N * 0.03) return;
+    // sensible corners and sides: no slivers, no wild angles
+    let okShape = true;
+    for (let k = 0; k < 4; k++) {
+      const a = q[(k + 3) % 4], b = q[k], d = q[(k + 1) % 4], v1x = a[0] - b[0], v1y = a[1] - b[1], v2x = d[0] - b[0], v2y = d[1] - b[1];
+      const ang = Math.acos(Math.max(-1, Math.min(1, (v1x * v2x + v1y * v2y) / (Math.hypot(v1x, v1y) * Math.hypot(v2x, v2y) || 1))));
+      if (ang < 0.6 || ang > 2.55) okShape = false;
+    }
+    const sl = q.map((p, k) => Math.hypot(q[(k + 1) % 4][0] - p[0], q[(k + 1) % 4][1] - p[1]));
+    if (!okShape || Math.min(...sl) < Math.max(...sl) * 0.18) { log?.push({ q, why: 'shape' }); return; }
+    // fills its outline: the region itself, marks it encloses (a drawing) and hands over it
+    let x0 = w, y0 = h, x1 = 0, y1 = 0; for (const [x, y] of q) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+    const cl = erode(dilate(cm, w, h, 6), w, h, 6);
+    let inQ = 0, filled = 0, skinIn = 0, light = 0, lit = 0;
+    for (let y = Math.max(0, Math.floor(y0)); y <= Math.min(h - 1, y1); y++) for (let x = Math.max(0, Math.floor(x0)); x <= Math.min(w - 1, x1); x++) {
+      if (!pointInPoly(x + 0.5, y + 0.5, q)) continue; inQ++; const i = y * w + x;
+      if (cm[i]) { filled++; light += g[i]; lit++; } else if (skin[i]) { filled++; skinIn++; } else if (cl[i]) filled += 0.7;
+    }
+    const fill = inQ ? filled / inQ : 0;
+    if (fill < 0.6) { log?.push({ q, why: 'fill', fill }); return; }
+    // hands hold a sheet at its edges; a "sheet" that is mostly hands or a face is not one
+    if (skinIn > inQ * 0.3) { log?.push({ q, why: 'skin', fill }); return; }
+    const { pass, seen, total, onFrame, cx, cy, weakest, lighter } = sides(q);
+    // four straight lines can enclose any patch: each side must be an edge, with the sheet on its lighter side
+    if (strict && (weakest < 0.45 || lighter < 0.7)) { log?.push({ q, why: 'edge', fill, edge: weakest }); return; }
+    const fillsView = onFrame > total * 0.55 && qa > N * 0.5; // the paper fills most of the view: its sides are the frame
+    const edge = fillsView ? 0.8 : seen >= total * 0.25 ? pass / seen : 0.4;
+    if (!fillsView && edge < (strict ? 0.6 : 0.35)) { log?.push({ q, why: 'edge', fill, edge, seen, total }); return; }
+    const centre = 1 - Math.min(0.8, Math.hypot(cx / w - 0.5, cy / h - 0.5) * 1.3);
+    const white = Math.min(1, Math.max(0.2, ((lit ? light / lit : 0) - 0.25) / 0.55)); // drawing paper is white: of two cards, the whiter
+    const score = edge ** 1.5 * fill ** 2 * Math.sqrt(Math.min(qa, N) / N) * centre * white;
+    if (score < 0.02) { log?.push({ q, why: 'weak', fill, edge }); return; } // a faint patch at the edge of the view is no sheet
+    log?.push({ q, fill, edge, centre, score, fillsView });
+    if (fillsView) { if (score > whole.score) whole = { c, m: cm, q: null, score }; }
+    else if (score > best.score) best = { c, m: cm, q, score };
+  };
+
+  // 1. regions: paper-coloured at several brightness levels, smooth, or walled in by edges
+  const masks: [Uint8Array, boolean][] = []; // [mask, close over pencil lines]
+  for (const L of [0.42, 0.52, 0.62, 0.72, 0.8, 0.88]) { const m = new Uint8Array(N); for (let i = 0; i < N; i++) m[i] = g[i] > L && sat[i] < 0.25 && !skin[i] ? 1 : 0; masks.push([m, true]); }
+  for (const T of [0.022, 0.04]) { const m = new Uint8Array(N); for (let i = 0; i < N; i++) m[i] = gm[i] < T && g[i] > 0.3 && sat[i] < 0.3 && !skin[i] ? 1 : 0; masks.push([m, true]); }
+  // (crayon on the sheet is part of it, so colour is allowed here; only the walls of edges split regions)
+  for (const d of [1, 2]) { const de = dilate(ce, w, h, d), m = new Uint8Array(N); for (let i = 0; i < N; i++) m[i] = !de[i] && g[i] > 0.25 && !skin[i] ? 1 : 0; masks.push([m, false]); }
+  for (const [raw, close] of masks) {
+    let m = close ? erode(dilate(raw, w, h, 2), w, h, 2) : raw; // over pencil lines
+    m = dilate(erode(m, w, h, 1), w, h, 1); // off thin bits
+    const { lab, sizes } = label(m, w, h, false);
+    const ids = sizes.map((s, l) => [s, l]).filter(([s, l]) => l && s >= N * 0.02 && s <= N * 0.98).sort((a, b) => b[0] - a[0]).slice(0, 6).map(v => v[1]);
+    for (const id of ids) {
+      const cm = new Uint8Array(N); for (let i = 0; i < N; i++) if (lab[i] === id) cm[i] = 1;
+      const hp = hull(outline(cm, w, h)); if (hp.length >= 4) consider(sidesQuad(hp), cm);
+    }
+  }
+
+  // 2. straight edges paired up as four sides
+  const lines = houghLines(ce, w, h, 14), quads: { q: Pt[]; sup: number }[] = [];
+  const angDiff = (a: number, b: number) => { const d = Math.abs(a - b) % Math.PI; return Math.min(d, Math.PI - d); };
+  const inReach = (p: Pt) => p[0] > -w * 0.3 && p[0] < w * 1.3 && p[1] > -h * 0.3 && p[1] < h * 1.3;
+  for (let a = 0; a < lines.length; a++) for (let b = a + 1; b < lines.length; b++) for (let cI = b + 1; cI < lines.length; cI++) for (let d = cI + 1; d < lines.length; d++) {
+    const L = [lines[a], lines[b], lines[cI], lines[d]];
+    for (const [p, q2, r, s] of [[0, 1, 2, 3], [0, 2, 1, 3], [0, 3, 1, 2]]) {
+      const A1 = L[p], A2 = L[q2], B1 = L[r], B2 = L[s];
+      if (angDiff(A1.t, A2.t) > 0.45 || angDiff(B1.t, B2.t) > 0.45 || angDiff(A1.t, B1.t) < 0.6) continue;
+      const corners = [meetLines(A1, B1), meetLines(B1, A2), meetLines(A2, B2), meetLines(B2, A1)];
+      if (corners.some(pt => !pt || !inReach(pt))) continue;
+      const qd = corners as Pt[];
+      let sign = 0, convex = true;
+      for (let k = 0; k < 4; k++) { const cr = cross(qd[k], qd[(k + 1) % 4], qd[(k + 2) % 4]); if (!sign) sign = Math.sign(cr); else if (Math.sign(cr) !== sign) convex = false; }
+      if (!convex) continue;
+      const qa = polyArea(qd); if (qa < N * 0.04 || qa > N * 1.3) continue;
+      const sp = sides(qd); if (sp.seen < sp.total * 0.25) continue;
+      quads.push({ q: qd, sup: sp.pass / sp.seen });
+    }
+  }
+  quads.sort((x, y) => y.sup - x.sup);
+  for (const { q } of quads.filter(o => o.sup >= 0.6).slice(0, 8)) {
+    // the sheet inside these sides: what is light and not a hand, closed over pencil lines like the regions above
+    let cm: Uint8Array = new Uint8Array(N);
+    let x0 = w, y0 = h, x1 = 0, y1 = 0; for (const [x, y] of q) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+    for (let y = Math.max(0, Math.floor(y0)); y <= Math.min(h - 1, y1); y++) for (let x = Math.max(0, Math.floor(x0)); x <= Math.min(w - 1, x1); x++) {
+      const i = y * w + x; if (g[i] > 0.3 && !skin[i] && pointInPoly(x + 0.5, y + 0.5, q)) cm[i] = 1;
+    }
+    cm = erode(dilate(cm, w, h, 2), w, h, 2);
+    consider(q, cm, true);
+  }
+
+  // "the paper fills the view" only when no sheet with real edges was found (a light wall also fills the view),
+  // or when the view is already the sheet, cut out and flattened (then a box drawn on it is not a smaller sheet)
+  if (flat && whole.score) return whole;
+  if (!best.score || (whole.score && best.score < whole.score * 0.15)) return whole.score ? whole : best;
+  return best;
 }
 
 function outline(m: Uint8Array, w: number, h: number): Pt[] {
@@ -260,24 +434,14 @@ function touchesBorder(lab: Int32Array, w: number, h: number): Set<number> {
 export interface Sheet { quad: Quad | null; hands: boolean }
 
 /**
- * Find the sheet of paper (four corners) and whether hands are over it. Hands, a lap or a busy table are not paper,
- * and a hand over a corner does not cut the corner off (the corners come from the sheet's convex outline).
+ * Find the sheet of paper (four corners) and whether hands are over it. Hands, a lap, a white wall or a busy table
+ * are not the sheet, and a hand over a corner does not cut the corner off (the sheet's sides are extended to meet).
  * quad is null when no clear sheet is found, for example when the paper fills the whole view.
  */
 export function detectSheet(img: Img): Sheet {
-  const small = resize(img, 240), c = classify(small), { w, h } = c, s = sheet(c);
-  let quad: Quad | null = null, poly: Pt[] | null = null;
-  if (s) {
-    // if the sheet hugs most of the frame border, the paper fills the view: no outline to find
-    let border = 0, perim = 0;
-    const onB = (x: number, y: number) => { perim++; if (s.m[y * w + x]) border++; };
-    for (let x = 0; x < w; x++) { onB(x, 0); onB(x, h - 1); } for (let y = 1; y < h - 1; y++) { onB(0, y); onB(w - 1, y); }
-    const hp = border / perim > 0.6 ? [] : hull(outline(s.m, w, h));
-    if (hp.length >= 4) {
-      const q = sidesQuad(hp), qa = polyArea(q);
-      if (qa >= w * h * 0.1 && qa >= polyArea(hp) * 0.85) { poly = q; const sx = img.width / w, sy = img.height / h; quad = orderQuad(q.map(([x, y]) => [x * sx, y * sy] as Pt)); }
-    }
-  }
+  const f = findSheet(img, 256), { c } = f, { w, h } = c, poly = f.q;
+  let quad: Quad | null = null;
+  if (poly) { const sx = img.width / w, sy = img.height / h; quad = orderQuad(poly.map(([x, y]) => [x * sx, y * sy] as Pt)); }
   // hands: skin that reaches in over the sheet from outside it
   const inner: Pt[] = poly
     ? (() => { const cx = poly.reduce((a, p) => a + p[0], 0) / 4, cy = poly.reduce((a, p) => a + p[1], 0) / 4; return poly.map(([x, y]) => [cx + (x - cx) * 0.88, cy + (y - cy) * 0.88] as Pt); })()
@@ -292,19 +456,25 @@ export function detectSheet(img: Img): Sheet {
   return { quad, hands };
 }
 
+/** The Canny edges the sheet finder sees (for tools/paper-lab.html). */
+export function sheetEdges(img: Img): { w: number; h: number; e: Uint8Array } { const c = classify(resize(img, 256)); return { w: c.w, h: c.h, e: canny(c) }; }
+
+/** Every candidate sheet and why it won or lost, in the scaled-down image's coordinates (for tools/paper-lab.html). */
+export function sheetCandidates(img: Img, maxSide = 256): { w: number; h: number; list: object[] } { const list: object[] = [], f = findSheet(img, maxSide, list); return { w: f.c.w, h: f.c.h, list }; }
+
 /** Find the sheet of paper: four corners, or null when no clear sheet is found. */
 export function detectPaper(img: Img): Quad | null { return detectSheet(img).quad; }
 
 /**
  * Where a drawing can be: the sheet and the marks on it. Hands (skin, and the shadows they cast, reaching in
  * from the edge), the background, and anything else that reaches in from outside the sheet are left out.
- * Returns a mask the size of img.
+ * Returns a mask the size of img. flat: img is the sheet already cut out and flattened.
  */
-export function drawingArea(img: Img): Uint8Array {
-  const small = resize(img, 320), c = classify(small), { w, h } = c, s = sheet(c), W = img.width, H = img.height;
+export function drawingArea(img: Img, flat = false): Uint8Array {
+  const f = findSheet(img, 320, undefined, flat), { c } = f, { w, h } = c, W = img.width, H = img.height;
   const area = new Uint8Array(W * H);
-  if (!s) { area.fill(1); return area; }
-  const P = s.m, hp = hull(outline(P, w, h));
+  if (!f.score) { area.fill(1); return area; }
+  const P = f.m, hp = hull(outline(P, w, h));
   const inHull = new Uint8Array(w * h);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) inHull[y * w + x] = hp.length >= 3 && pointInPoly(x + 0.5, y + 0.5, hp) ? 1 : 0;
   const shadow = dilate(erode(c.grey, w, h, 2), w, h, 2); // thick soft grey, not thin pencil lines
@@ -755,7 +925,7 @@ export function processScan(photo: Img, opts: { minSharpness?: number } = {}): S
   const w = paper.width, h = paper.height;
   let m: Uint8Array = inkMask(paper);
   // only marks on the sheet: hands, their shadows and the background are not part of the drawing
-  const area = drawingArea(paper);
+  const area = drawingArea(paper, !!quad);
   for (let i = 0; i < m.length; i++) if (!area[i]) m[i] = 0;
   m = despeckle(m, w, h, Math.max(6, Math.round(w * h * 0.00004)));
   // a photo of a room or a face is mostly "ink"; a drawing on paper is mostly paper

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Paper lab</title>
+<style>
+  body { margin: 0; padding: 16px; font: 14px system-ui, sans-serif; background: #f4efe4; color: #3d2b22; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  p { margin: 0 0 12px; }
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+  figure { margin: 0; background: #fff; border-radius: 8px; padding: 2px; }
+  canvas { width: 100%; height: 190px; object-fit: contain; background: #222; display: block; border-radius: 4px; }
+  figcaption { font-size: 12px; padding-top: 4px; display: flex; justify-content: space-between; }
+  .bad { color: #c0392b; font-weight: 700; }
+</style>
+</head>
+<body>
+<h1>Paper lab</h1>
+<p>Runs the scanner's paper finder on real photos. Yellow: the sheet's corners. Red tint: left out (hands, background). Add photo URLs (CORS-enabled) with <code>?u=url1|url2</code>.</p>
+<div id="grid"></div>
+<script type="module">
+import { detectSheet, drawingArea } from '/src/scan/pipeline.ts';
+
+const DEFAULT = [
+  // people holding paper or signs in front of the camera
+  'photo-1510192111633-a6807b90a8f1', 'photo-1549036960-3a8bb045a953', 'photo-1646617747571-245202aa208d', 'photo-1549641207-8d4cb87b3204',
+  'photo-1646617747566-00a06a0a932e', 'photo-1760720962365-6ae03435c02a', 'photo-1790860887020-e878522c7b9f', 'photo-1626150487065-9d4d0289327e',
+  'photo-1664735245698-b05abf000d4c', 'photo-1664735245401-b059de54fe33', 'photo-1549554865-37e01f877035', 'photo-1556172437-ce5a8a6b11bc',
+  'photo-1664735245786-bb7c23f2604d', 'photo-1634245482261-4c38661cd614', 'photo-1634245482473-2ef67bd7aac6', 'photo-1626150487027-07918eea8b0d',
+  'photo-1626150487045-c51ce18d9e8b', 'photo-1718119594775-80f0b3c7a749', 'photo-1786825638703-a6d43e4f165a', 'photo-1582133925315-694371d92da2',
+  'photo-1717229774596-e1c020ec0370', 'photo-1630086444439-97f3e422cc13', 'photo-1716656873300-7b732c156271', 'photo-1478012237172-93bd483bb540',
+  // children holding drawings
+  'photo-1544773088-d142e38f5793', 'photo-1614712201488-9942af86b87b', 'photo-1573020568125-d15af9c3e777', 'photo-1651346845985-8ebabdcbb0f2',
+  'photo-1669663723170-bde6e7891176', 'photo-1767356326842-6801e89b89b6', 'photo-1784933359981-ea2b65512e8a', 'photo-1774898988205-6750c422a49d',
+  'photo-1552402332-0613c5258456', 'photo-1555680510-db867d30dd0f', 'photo-1666748648877-b9595feb0166', 'photo-1560130958-0ea787c275de',
+  'photo-1646617747593-8f075659286a', 'photo-1569145184445-68da4ece6ad0', 'photo-1583299566675-3e3634df4a7f',
+  // drawings on paper on a desk
+  'photo-1608804375369-498a4b601e42', 'photo-1593472807861-5bb884af28f6', 'photo-1589637458063-7b054f0c18ab', 'photo-1454191297004-cefa4b1042d8',
+  'photo-1586038755187-9a6538f9a0b4', 'photo-1498075702571-ecb018f3752d', 'photo-1608804375269-d077e2a2adaa', 'photo-1569154076682-4c0466623ec2',
+  'photo-1697897125933-9b026f27ef8d', 'photo-1715634091309-3a7bf0260ce1', 'photo-1607968169623-241026717e03', 'photo-1758521232691-613561977b6a',
+  'photo-1617328332024-e5a942ff38bc', 'photo-1605011365301-03970fa610ee', 'photo-1615999106742-2dfa10cdf0f4',
+].map(id => `https://images.unsplash.com/${id}?w=640&q=80`);
+const q = new URLSearchParams(location.search).get('u');
+const urls = q ? q.split('|') : DEFAULT;
+const grid = document.getElementById('grid');
+window.results = [];
+
+const load = src => new Promise((res, rej) => { const i = new Image(); i.crossOrigin = 'anonymous'; i.onload = () => res(i); i.onerror = rej; i.src = src; });
+// in the console: await dbg(3) lists every candidate sheet for photo #3 and why it won or lost
+window.dbg = async n => {
+  const { sheetCandidates } = await import('/src/scan/pipeline.ts?t=' + Date.now());
+  const im = await load(urls[n]), s = Math.min(1, 640 / Math.max(im.width, im.height)), c = document.createElement('canvas');
+  c.width = Math.round(im.width * s); c.height = Math.round(im.height * s); const x = c.getContext('2d'); x.drawImage(im, 0, 0, c.width, c.height);
+  const r = sheetCandidates({ width: c.width, height: c.height, data: x.getImageData(0, 0, c.width, c.height).data });
+  return { w: r.w, h: r.h, im, list: r.list.map(o => ({ ...o, pts: o.q, q: o.q.map(p => p.map(Math.round)).join(' ') })) };
+};
+// await show(3): photo #3 large, with every candidate (green: scored, grey: rejected) and the winner in yellow
+window.show = async n => {
+  const r = await dbg(n), big = document.createElement('canvas'), k = 700 / Math.max(r.w, r.h);
+  big.width = r.w * k; big.height = r.h * k; big.style.cssText = 'position:fixed;left:8px;top:8px;z-index:9;width:auto;height:auto;max-width:96vw;max-height:94vh;box-shadow:0 0 0 9999px rgba(0,0,0,.6)';
+  big.onclick = () => big.remove();
+  const x = big.getContext('2d'); x.drawImage(r.im, 0, 0, big.width, big.height);
+  // the same choice findSheet makes: a sheet with real edges, unless only "fills the view" is anywhere near
+  const by = l => l.sort((a, b) => b.score - a.score)[0], real = by(r.list.filter(o => o.score && !o.fillsView)), all = by(r.list.filter(o => o.fillsView));
+  const top = !real || (all && real.score < all.score * 0.15) ? all || real : real;
+  if (window.edges) { // the Canny edges in magenta
+    const { sheetEdges } = await import('/src/scan/pipeline.ts?t=' + Date.now()), t = document.createElement('canvas'); t.width = r.w; t.height = r.h; const tx = t.getContext('2d');
+    tx.drawImage(r.im, 0, 0, r.w, r.h); const E = sheetEdges({ width: r.w, height: r.h, data: tx.getImageData(0, 0, r.w, r.h).data });
+    x.fillStyle = '#ff00ff'; for (let i = 0; i < E.e.length; i++) if (E.e[i]) x.fillRect((i % E.w) * k, Math.floor(i / E.w) * k, k, k);
+  }
+  for (const o of [...r.list.filter(o => !o.score), ...r.list.filter(o => o.score)]) {
+    x.strokeStyle = o === top ? '#FFC93C' : o.score ? 'rgba(80,220,120,.9)' : 'rgba(200,200,200,.5)'; x.lineWidth = o === top ? 5 : 2;
+    x.beginPath(); o.pts.forEach(([a, b], i) => (i ? x.lineTo(a * k, b * k) : x.moveTo(a * k, b * k))); x.closePath(); x.stroke();
+  }
+  document.querySelectorAll('canvas[style*="position:fixed"]').forEach(c => c.remove()); document.body.append(big);
+  return r.list.filter(o => o.score || o.why === 'edge').map(o => `${o.q} ${o.why || ''} f=${o.fill?.toFixed(2)} e=${o.edge?.toFixed(2)} s=${o.score?.toFixed(3) ?? '-'}${o.fillsView ? ' fills-view' : ''}`).join('\n');
+};
+for (const [n, url] of urls.entries()) {
+  const fig = document.createElement('figure'), cv = document.createElement('canvas'), cap = document.createElement('figcaption');
+  fig.append(cv, cap); grid.append(fig);
+  try {
+    const im = await load(url), s = Math.min(1, 640 / Math.max(im.width, im.height));
+    cv.width = Math.round(im.width * s); cv.height = Math.round(im.height * s);
+    const x = cv.getContext('2d', { willReadFrequently: true }); x.drawImage(im, 0, 0, cv.width, cv.height);
+    const d = x.getImageData(0, 0, cv.width, cv.height), img = { width: cv.width, height: cv.height, data: new Uint8ClampedArray(d.data) };
+    const t0 = performance.now(), sheet = detectSheet(img), area = drawingArea(img), ms = Math.round(performance.now() - t0);
+    for (let i = 0; i < area.length; i++) if (!area[i]) { d.data[i * 4] = d.data[i * 4] * 0.5 + 110; d.data[i * 4 + 1] *= 0.45; d.data[i * 4 + 2] *= 0.45; }
+    x.putImageData(d, 0, 0);
+    if (sheet.quad) { x.strokeStyle = '#FFC93C'; x.lineWidth = 4; x.beginPath(); sheet.quad.forEach(([a, b], k) => (k ? x.lineTo(a, b) : x.moveTo(a, b))); x.closePath(); x.stroke(); }
+    cap.innerHTML = `<b>#${n}</b><span class="${sheet.quad ? '' : 'bad'}">${sheet.quad ? 'sheet' : 'no sheet'}${sheet.hands ? ' · hands' : ''} · ${ms} ms</span>`;
+    window.results.push({ n, quad: !!sheet.quad, hands: sheet.hands });
+  } catch (e) { cap.textContent = `#${n} could not load`; window.results.push({ n, error: true }); }
+}
+window.done = true;
+</script>
+</body>
+</html>

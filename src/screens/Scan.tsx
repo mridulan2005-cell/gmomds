@@ -11,6 +11,9 @@ import type { Img, Quad, ScanError } from '../scan/pipeline';
 type Phase = 'starting' | 'camera' | 'nocam' | 'processing' | 'scanning' | 'done' | 'error';
 let lastCapture: Float32Array | null = null; // so the grandchild's turn doesn't re-scan Dadi's sheet
 let preferFront = true; // the front camera by default; "Switch camera" flips it
+// Some cameras send a mirrored picture (writing comes out backwards). "Flip" turns it the right way round, per camera, and is remembered.
+const flipKey = () => 'dadis-map:flip:' + (preferFront ? 'user' : 'environment');
+const readFlip = () => { try { return localStorage.getItem(flipKey()) === '1'; } catch { return false; } };
 const TAKE = /\b(take|take it|click|snap|cheese)\b|टेक|ले लो|खींचो/; // spoken words that take the photo
 
 /** `replace`: a retake of a drawing already scanned (from today's sketches); the new scan takes its place. */
@@ -24,6 +27,7 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
   const [cropUrl, setCropUrl] = useState<string | null>(null);
   const [drawingId, setDrawingId] = useState<string | null>(null);
   const [fixing, setFixing] = useState(false);
+  const [flip, setFlip] = useState(readFlip); const flipRef = useRef(flip); flipRef.current = flip;
   const [hands, setHands] = useState(false), [listening, setListening] = useState(false);
   const video = useRef<HTMLVideoElement>(null), stream = useRef<MediaStream | null>(null), fileIn = useRef<HTMLInputElement>(null);
   const phaseRef = useRef(phase); phaseRef.current = phase;
@@ -58,7 +62,7 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
   useEffect(() => {
     const t = setInterval(async () => {
       if (phaseRef.current !== 'camera' || busy.current || !video.current) return;
-      const f = grab(video.current, 320); if (!f) return;
+      const f = grab(video.current, 320, flipRef.current); if (!f) return;
       busy.current = true;
       const th = thumb(f), w = f.width, h = f.height;
       const sh = await detect(f).catch(() => null), q = sh?.quad || null;
@@ -106,7 +110,7 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
   const captureRef = useRef<(from: 'camera' | Img) => Promise<void>>(async () => {});
   const capture = captureRef.current = async (from: 'camera' | Img) => {
     if (phaseRef.current === 'processing' || phaseRef.current === 'scanning') return;
-    const frame = from === 'camera' ? (video.current ? grab(video.current, 1600) : null) : from;
+    const frame = from === 'camera' ? (video.current ? grab(video.current, 1600, flipRef.current) : null) : from;
     if (!frame) return;
     phaseRef.current = 'processing'; setPhase('processing'); setQuad(null);
     lastCapture = thumb(frame);
@@ -161,7 +165,7 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
         <div className="tray" style={{ color }}>
           <Perforation />
           <div className="tray-inner" style={{ background: who === 'dadi' ? '#DCE6FA' : '#FBE1D7' }}>
-            <video ref={video} playsInline muted autoPlay style={{ display: live ? 'block' : 'none' }} />
+            <video ref={video} playsInline muted autoPlay style={{ display: live ? 'block' : 'none', transform: flip ? 'scaleX(-1)' : undefined }} />
             {live && quad && (
               <svg className="quad-overlay" viewBox={`0 0 ${quad.w} ${quad.h}`} preserveAspectRatio="xMidYMid slice">
                 <polygon points={quad.q.map(p => `${p[0]},${p[1]}`).join(' ')} fill="rgba(255,201,60,.18)" stroke="#FFC93C" strokeWidth={quad.w / 90} strokeLinejoin="round" />
@@ -204,7 +208,8 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
           {(live || phase === 'error') && (
             <div className="scan-secondary">
               <button className="btn-cream small" onClick={() => fileIn.current?.click()}>Use a photo</button>
-              {live && <button className="btn-cream small" onClick={() => { preferFront = !preferFront; void startCamera(); }}>Switch camera</button>}
+              {live && <button className="btn-cream small" onClick={() => { preferFront = !preferFront; setFlip(readFlip()); void startCamera(); }}>Switch camera</button>}
+              {live && <button className="btn-cream small" onClick={() => { const f = !flip; setFlip(f); hist.current = []; try { localStorage.setItem(flipKey(), f ? '1' : '0'); } catch { /* not remembered */ } }}>Flip</button>}
               <button className="btn-cream small" onClick={() => go(replace ? { screen: 'sketches' } : { screen: 'home' })}>Not now</button>
             </div>
           )}
