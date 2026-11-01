@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Go } from '../App';
 import { Arrow, Perforation } from '../components';
 import { DADI, CHILD, QUICK_PICKS, fillFor, guessFor } from '../lib/content';
-import { addDrawing, getState, saveScan, uid, updateDrawing, useApp } from '../lib/store';
+import { addDrawing, getState, replaceDrawing, saveScan, uid, updateDrawing, useApp } from '../lib/store';
 import type { Drawing, Guess } from '../lib/types';
 import { detect, grab, process, recognise, thumb, thumbDiff, toBlob, toCanvas } from '../scan/scanner';
 import { warmDoodle } from '../scan/doodle';
@@ -10,12 +10,13 @@ import type { Img, Quad, ScanError } from '../scan/pipeline';
 
 type Phase = 'starting' | 'camera' | 'nocam' | 'processing' | 'scanning' | 'done' | 'error';
 let lastCapture: Float32Array | null = null; // so the grandchild's turn doesn't re-scan Dadi's sheet
-let preferFront = false;
+let preferFront = true; // the front camera by default; "Switch camera" flips it
 
-export function Scan({ who, go }: { who: 'dadi' | 'child'; go: Go }) {
+/** `replace`: a retake of a drawing already scanned (from today's sketches); the new scan takes its place. */
+export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; replace?: string }) {
   const s = useApp(), name = who === 'dadi' ? s.names.dadi : s.names.child, color = who === 'dadi' ? DADI : CHILD;
   const [phase, setPhase] = useState<Phase>('starting');
-  const [err, setErr] = useState<ScanError | 'camera' | 'failed' | null>(null);
+  const [err, setErr] = useState<ScanError | 'not-drawing' | 'camera' | 'failed' | null>(null);
   const [quad, setQuad] = useState<{ q: Quad; w: number; h: number } | null>(null);
   const [steady, setSteady] = useState(0);
   const [still, setStill] = useState<string | null>(null);
@@ -26,11 +27,13 @@ export function Scan({ who, go }: { who: 'dadi' | 'child'; go: Go }) {
   const phaseRef = useRef(phase); phaseRef.current = phase;
   const hist = useRef<Quad[]>([]), busy = useRef(false), alive = useRef(true);
   const drawing = drawingId ? s.drawings[drawingId] : null;
+  const replacing = useRef(replace); // the drawing the next capture replaces (a retake)
 
   // the grandchild scans second; if Dadi's scan is missing, start with Dadi
   useEffect(() => {
     const st = getState();
-    if (!st.prompt) go({ screen: 'home' });
+    if (replace) { if (!st.drawings[replace]) go({ screen: 'sketches' }); }
+    else if (!st.prompt) go({ screen: 'home' });
     else if (who === 'child' && !(st.scanning && st.scanning.promptId === st.prompt.id && st.scanning.dadi)) go({ screen: 'scan', who: 'dadi' });
   }, []);
 
@@ -82,20 +85,24 @@ export function Scan({ who, go }: { who: 'dadi' | 'child'; go: Go }) {
       if (!r.ok || !r.crop || !r.vector) { setErr(r.error || 'failed'); setPhase('error'); return; }
       const crop = r.crop, cropCanvas = toCanvas(crop, 1200), jpeg = await toBlob(cropCanvas);
       setCropUrl(URL.createObjectURL(jpeg)); setPhase('scanning');
-      const started = performance.now(), prompt = getState().prompt?.text || '';
+      const started = performance.now(), old = replacing.current ? getState().drawings[replacing.current] : undefined;
+      const prompt = (old && getState().months.flatMap(m => m.places.flatMap(p => p.pairs)).find(p => p.promptId === old.promptId)?.prompt) || getState().prompt?.text || '';
       const rec = await recognise(crop, prompt, who, r.vector);
+      if (rec.notDrawing) { setErr('not-drawing'); setPhase('error'); return; }
       await new Promise(res => setTimeout(res, Math.max(0, 2600 - (performance.now() - started))));
       const st = getState(), id = uid();
       const { art, ...paths } = r.vector; // the drawing's own image is stored as a blob, not in the state
       const artBlob = art ? await toBlob(toCanvas(art), 'image/jpeg', 0.92).catch(() => null) : null;
       const d: Drawing = {
-        id, personId: who, promptId: st.prompt?.id || '', createdAt: Date.now(), paths, hasArt: !!artBlob,
+        id, personId: who, promptId: old ? old.promptId : st.prompt?.id || '', createdAt: Date.now(), paths, hasArt: !!artBlob,
         kind: rec.kind, label: rec.label, motion: rec.motion, place: rec.place, fillColor: fillFor(rec.kind, who === 'dadi' ? 0 : 1),
         confidence: rec.confidence, alternatives: rec.alternatives || [], source: rec.source,
       };
       await saveScan(id, jpeg);
       if (artBlob) await saveScan(id, artBlob, 'art');
-      addDrawing(d); setDrawingId(id); setPhase('done'); stopCamera();
+      if (old) replaceDrawing(old.id, d); else addDrawing(d);
+      replacing.current = id; // a further retake replaces this one
+      setDrawingId(id); setPhase('done'); stopCamera();
     } catch (e) { console.error(e); setErr('failed'); setPhase('error'); }
   };
 
@@ -105,12 +112,14 @@ export function Scan({ who, go }: { who: 'dadi' | 'child'; go: Go }) {
     catch { setErr('failed'); setPhase('error'); }
   };
   const retry = () => { setStill(null); setCropUrl(null); setErr(null); if (stream.current) setPhase('camera'); else void startCamera(); };
+  // scan this drawing again: the camera reopens and the new scan replaces the one just made
+  const retake = () => { lastCapture = null; setDrawingId(null); setFixing(false); retry(); };
   const choose = (g: Guess) => { if (drawingId) updateDrawing(drawingId, { kind: g.kind, label: g.label, motion: g.motion, place: g.place, fillColor: fillFor(g.kind, who === 'dadi' ? 0 : 1), confidence: 1 }); setFixing(false); };
 
   const live = phase === 'camera' || phase === 'starting';
   const head = phase === 'processing' || phase === 'scanning' ? <span>Scanning. Keep it still.</span>
     : phase === 'done' ? <span>It's scanned!</span>
-    : phase === 'error' ? <span>{err === 'blurry' ? 'That came out a bit blurry' : err === 'empty' ? "We couldn't see a drawing" : 'Let’s try that again'}</span>
+    : phase === 'error' ? <span>{err === 'blurry' ? 'That came out a bit blurry' : err === 'empty' || err === 'not-drawing' ? "We couldn't see a drawing" : 'Let’s try that again'}</span>
     : <><span>Put</span><span className="name-tag" style={{ background: color }}>{name}</span><span>'s drawing on the tray</span></>;
 
   return (
@@ -149,21 +158,22 @@ export function Scan({ who, go }: { who: 'dadi' | 'child'; go: Go }) {
             </div>
           )}
           {phase === 'nocam' && <div className="notice">The camera isn't available here. You can take or choose a photo of the drawing instead.</div>}
-          {phase === 'error' && <div className="notice">{err === 'blurry' ? 'Hold the tablet still and try again.' : err === 'empty' ? 'Make sure the drawing is in view, or press a little harder with the pencil, and try again.' : 'Something went wrong while scanning. Please try again.'}</div>}
+          {phase === 'error' && <div className="notice">{err === 'blurry' ? 'Hold the tablet still and try again.' : err === 'empty' ? 'Make sure the drawing is in view, or press a little harder with the pencil, and try again.' : err === 'not-drawing' ? 'Only drawings on paper can go on the map. Put the drawing on the tray and try again.' : 'Something went wrong while scanning. Please try again.'}</div>}
 
           {(phase === 'processing' || phase === 'scanning') && <div className="busy">Scanning…</div>}
           {live && <button className="btn-primary" disabled={phase === 'starting'} onClick={() => void capture('camera')}><Arrow />It's on the tray</button>}
           {phase === 'nocam' && <button className="btn-primary" onClick={() => fileIn.current?.click()}><Arrow />Choose a photo</button>}
           {phase === 'error' && <button className="btn-primary" onClick={retry}><Arrow />Try again</button>}
-          {phase === 'done' && (who === 'dadi'
-            ? <button className="btn-primary" onClick={() => go({ screen: 'scan', who: 'child' })}><Arrow />Now {s.names.child}'s turn</button>
-            : <button className="btn-primary" onClick={() => go({ screen: 'sketches' })}><Arrow />See today's sketches</button>)}
+          {phase === 'done' && (replace || who === 'child'
+            ? <button className="btn-primary" onClick={() => go({ screen: 'sketches' })}><Arrow />See today's sketches</button>
+            : <button className="btn-primary" onClick={() => go({ screen: 'scan', who: 'child' })}><Arrow />Now {s.names.child}'s turn</button>)}
+          {phase === 'done' && <div className="scan-secondary"><button className="btn-cream small" onClick={retake}>Retake</button></div>}
 
           {(live || phase === 'error') && (
             <div className="scan-secondary">
               <button className="btn-cream small" onClick={() => fileIn.current?.click()}>Use a photo</button>
               {live && <button className="btn-cream small" onClick={() => { preferFront = !preferFront; void startCamera(); }}>Switch camera</button>}
-              <button className="btn-cream small" onClick={() => go({ screen: 'home' })}>Not now</button>
+              <button className="btn-cream small" onClick={() => go(replace ? { screen: 'sketches' } : { screen: 'home' })}>Not now</button>
             </div>
           )}
         </div>

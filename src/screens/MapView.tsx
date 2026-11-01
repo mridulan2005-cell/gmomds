@@ -33,14 +33,14 @@ export function MapView({ route, go, dest }: { route: MapRoute; go: Go; dest: (d
   } else if (route.screen === 'interior') {
     const m = s.months[route.mi] || s.months[0];
     cfg = { mode: 'month', key: 'month-' + m.id, places: m.places.map(p => placeCfg(s, p)) };
-    title = m.name + (route.mi === 0 ? ' · in progress' : ''); hint = 'Drag to turn the map · tap a place to visit it';
+    title = m.name + (route.mi === 0 ? ' · in progress' : ''); hint = 'Drag to move around · two fingers to turn · tap a place to visit it';
     back = { label: 'All maps', to: { screen: 'stack' } };
   } else if (route.screen === 'place') {
     const hit = placeById(s, route.placeId);
     if (hit) {
       const { place, mi } = hit, n = place.pairs.length, done = place.status === 'done';
       cfg = { mode: 'place', key: place.id, place: placeCfg(s, place), fresh };
-      title = done ? place.name : 'Theme: ???'; hint = done ? 'Drag to turn it around' : 'Drag to turn it around · the theme appears after seven pairs';
+      title = done ? place.name : 'Theme: ???'; hint = done ? 'Drag to move around · two fingers to turn' : 'Drag to move around · two fingers to turn · the theme appears after seven pairs';
       back = { label: 'Map', to: { screen: 'interior', mi } };
       stepper = { n, fresh: fresh >= 0, done };
       if (done) bookBtn = place.id;

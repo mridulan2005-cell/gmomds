@@ -11,7 +11,7 @@ export interface Paths {
 }
 
 export interface Guess { kind: string; label: string; motion: Motion; place: Spot }
-export interface Recognition extends Guess { confidence: number; alternatives: Guess[]; source: 'claude' | 'local' }
+export interface Recognition extends Guess { confidence: number; alternatives: Guess[]; source: 'claude' | 'local'; /** the photo is not a drawing on paper */ notDrawing?: boolean }
 
 export interface Drawing {
   id: string;

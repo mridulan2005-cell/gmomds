@@ -18,7 +18,7 @@ Other commands: `npm test` (scan pipeline tests), `npm run build`, `npm run prev
 
 ## How a drawing comes to life
 
-1. **Capture** (`src/screens/Scan.tsx`): this is the rear camera inside the tray viewfinder. When a sheet is found and held still for about 1 second, it is captured automatically. "It's on the tray" captures by hand, and "Use a photo" takes a photo or picks one from the library. Dadi scans first, then the grandchild; the order of scanning decides whose drawing is whose.
+1. **Capture** (`src/screens/Scan.tsx`): this is the front camera inside the tray viewfinder ("Switch camera" uses the rear one). When a sheet is found and held still for about 1 second, it is captured automatically. "It's on the tray" captures by hand, and "Use a photo" takes a photo or picks one from the library. "Retake" scans a drawing again, right after scanning or later from today's sketches. Dadi scans first, then the grandchild; the order of scanning decides whose drawing is whose.
 2. **Clean-up** (`src/scan/pipeline.ts`, in a Web Worker):
    - Finds the paper as the largest bright four-sided region and corrects the perspective.
    - Estimates the paper's brightness, so shadows don't count as ink.

@@ -96,6 +96,23 @@ describe('scan pipeline', () => {
     expect(processScan(img)).toMatchObject({ ok: false, error: 'empty' });
   });
 
+  it('keeps only the drawing: no edge shadow, no stray speck far away', () => {
+    const img = canvas(500, 400, [240, 238, 232]);
+    stroke(img, ellipse(250, 200, 80, 60), 3, [30, 30, 30]);
+    stroke(img, [[0, 380], [500, 380]], 6, [120, 118, 112]); // a shadow along the bottom edge
+    stroke(img, [[460, 40], [462, 42]], 3, [30, 30, 30]); // a smudge in a far corner
+    const r = processScan(img);
+    expect(r.ok).toBe(true);
+    // the crop hugs the drawing, not the whole page
+    expect(r.crop!.width).toBeLessThan(260); expect(r.crop!.height).toBeLessThan(200);
+  });
+
+  it('says "not-drawing" for a photo that is not a drawing on paper', () => {
+    const img = canvas(400, 300, [0, 0, 0]);
+    for (let y = 0; y < 300; y++) for (let x = 0; x < 400; x++) img.data.set([(x * 7) % 200, (y * 5) % 160, ((x + y) * 3) % 120], (y * 400 + x) * 4);
+    expect(processScan(img)).toMatchObject({ ok: false });
+  });
+
   it('works when the paper fills the whole view', () => {
     const img = canvas(500, 400, [240, 238, 232]);
     stroke(img, ellipse(250, 200, 100, 80), 3, [30, 30, 30]);

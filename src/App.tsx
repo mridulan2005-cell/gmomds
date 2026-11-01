@@ -9,7 +9,7 @@ import { Scrapbook } from './screens/Scrapbook';
 import type { Dest } from './components';
 
 export type Route =
-  | { screen: 'onboard' } | { screen: 'home' } | { screen: 'scan'; who: 'dadi' | 'child' } | { screen: 'sketches' }
+  | { screen: 'onboard' } | { screen: 'home' } | { screen: 'scan'; who: 'dadi' | 'child'; replace?: string } | { screen: 'sketches' }
   | { screen: 'stack' } | { screen: 'interior'; mi: number } | { screen: 'place'; placeId: string } | { screen: 'reveal' }
   | { screen: 'book'; placeId?: string };
 export type Go = (r: Route) => void;
@@ -19,7 +19,7 @@ function useStage() {
   const calc = () => {
     const vw = window.innerWidth, vh = window.innerHeight, portrait = vh > vw * 1.05;
     const baseW = portrait ? 860 : 1280, minH = portrait ? 1080 : 780;
-    const scale = Math.min(vw / baseW, vh / minH);
+    const scale = Math.min(vw / baseW, vh / minH) || 1; // 0 × 0 while the window is hidden
     return { scale, W: vw / scale, H: vh / scale, portrait };
   };
   const [s, setS] = useState(calc);
@@ -42,7 +42,8 @@ export default function App() {
   const st = useStage(), s = useApp(), loaded = useLoaded();
   const [route, setRoute] = useState<Route | null>(null);
   useEffect(() => { void load(); }, []);
-  useEffect(() => { if (loaded && !route) { setRoute(s.onboarded ? { screen: 'home' } : { screen: 'onboard' }); if (s.onboarded) void ensurePrompt(); } }, [loaded]);
+  // while developing, every reload brings a fresh prompt (for testing)
+  useEffect(() => { if (loaded && !route) { setRoute(s.onboarded ? { screen: 'home' } : { screen: 'onboard' }); if (s.onboarded) void ensurePrompt(import.meta.env.DEV); } }, [loaded]);
   // a new day while the app stays open
   useEffect(() => { const t = setInterval(() => { if (s.onboarded) void ensurePrompt(); }, 60_000); const v = () => document.visibilityState === 'visible' && s.onboarded && ensurePrompt(); document.addEventListener('visibilitychange', v); return () => { clearInterval(t); document.removeEventListener('visibilitychange', v); }; }, [s.onboarded]);
 
@@ -54,7 +55,7 @@ export default function App() {
     const r = route;
     if (r.screen === 'onboard') body = <Onboarding go={go} />;
     else if (r.screen === 'home') body = <Home go={go} dest={dest} />;
-    else if (r.screen === 'scan') body = <Scan key={r.who} who={r.who} go={go} />;
+    else if (r.screen === 'scan') body = <Scan key={r.who + (r.replace || '')} who={r.who} replace={r.replace} go={go} />;
     else if (r.screen === 'sketches') body = <Sketches go={go} />;
     else if (r.screen === 'book') body = <Scrapbook go={go} dest={dest} placeId={r.placeId} />;
     else body = <MapView key={r.screen + ('placeId' in r ? r.placeId : '') + ('mi' in r ? r.mi : '')} route={r} go={go} dest={dest} />;

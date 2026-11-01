@@ -115,6 +115,8 @@ input { font-family: inherit; -webkit-user-select: text; user-select: text; }
 .stamp .perf { background-image: radial-gradient(circle, var(--perf) 6px, transparent 6.5px); }
 .stamp-inner { position: absolute; left: 20px; right: 20px; top: 20px; bottom: 64px; display: flex; align-items: center; justify-content: center; }
 .stamp-owner { position: absolute; left: 20px; right: 20px; bottom: 16px; font-size: 26px; font-weight: 900; text-transform: uppercase; display: flex; justify-content: space-between; align-items: baseline; }
+.stamp-retake { position: absolute; left: 50%; bottom: -74px; translate: -50% 0; }
+.stamp-retake:active { translate: -50% 5px; }
 .stamp-owner small { font-size: 16px; font-weight: 800; text-transform: none; color: var(--ink); opacity: .7; }
 
 /* Maps */

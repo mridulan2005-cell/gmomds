@@ -24,6 +24,7 @@ export function Sketches({ go }: { go: Go }) {
             <Perforation color="#E9A3C0" />
             <div className="stamp-inner" style={{ background: c.tint }}><DrawingArt d={c.d} /></div>
             <div className="stamp-owner" style={{ color: c.color }}><span>{c.owner}</span><small>{c.d.label}</small></div>
+            {c.d.source !== 'sample' && <button className="btn-cream small stamp-retake" onClick={() => go({ screen: 'scan', who: c.d.personId, replace: c.d.id })}>Retake</button>}
           </div>
         ))}
       </div>

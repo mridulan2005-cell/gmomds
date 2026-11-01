@@ -37,6 +37,7 @@ function hashSeed(str: string) { let h = 7; for (let i = 0; i < str.length; i++)
 const easeBack = (k: number) => { const c = 1.6; return 1 + (c + 1) * Math.pow(k - 1, 3) + c * Math.pow(k - 1, 2); };
 function shade(hex: string, f = 0.78) { const n = parseInt(hex.slice(1), 16); const r = Math.round(((n >> 16) & 255) * f), g = Math.round(((n >> 8) & 255) * f), b = Math.round((n & 255) * f); return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1); }
 const now = () => performance.now() / 1000;
+const clamp = (v: number, a: number, b: number) => (v < a ? a : v > b ? b : v);
 const parse = (d: string) => new SVGLoader().parse(`<svg xmlns="http://www.w3.org/2000/svg"><path d="${d}"/></svg>`).paths;
 
 interface DrawGeo { fills: { geo: THREE.BufferGeometry; i: number }[]; a: THREE.BufferGeometry[]; b: THREE.BufferGeometry[] }
@@ -155,17 +156,32 @@ export class MapScene {
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0xf1d9a8, 1.6));
     const dl = new THREE.DirectionalLight(0xffffff, 1.6); dl.position.set(-400, 900, 700); this.scene.add(dl);
     const c = new OrbitControls(this.camera, r.domElement);
-    c.enableDamping = true; c.dampingFactor = 0.08; c.enablePan = false; c.minPolarAngle = 0.3; c.maxPolarAngle = 1.32; c.rotateSpeed = 0.6; this.controls = c;
+    c.enableDamping = true; c.dampingFactor = 0.08; c.minPolarAngle = 0.3; c.maxPolarAngle = 1.32; c.rotateSpeed = 0.6;
+    // one finger (or the left mouse button) drags the map around (below); two fingers (or the right button) turn and zoom
+    c.enablePan = false;
+    c.touches = { ONE: null as unknown as THREE.TOUCH, TWO: THREE.TOUCH.DOLLY_ROTATE };
+    c.mouseButtons = { LEFT: null as unknown as THREE.MOUSE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
+    this.controls = c;
     const gm = new THREE.DataTexture(new Uint8Array([120, 195, 255]), 3, 1, THREE.RedFormat); gm.minFilter = gm.magFilter = THREE.NearestFilter; gm.needsUpdate = true; this.grad = gm;
     this.ro = new ResizeObserver(() => this.resize()); this.ro.observe(el); this.resize();
-    const cv = r.domElement; let down: { x: number; y: number; sy: number; moved: boolean } | null = null;
-    cv.addEventListener('pointerdown', e => { down = { x: e.clientX, y: e.clientY, sy: this.stackTarget, moved: false }; });
-    cv.addEventListener('pointermove', e => {
-      if (!down) return; const dx = e.clientX - down.x, dy = e.clientY - down.y; if (Math.hypot(dx, dy) > 8) down.moved = true;
-      if (this.mode === 'stack') { const k = this.el.clientHeight / (cv.getBoundingClientRect().height || 1); this.stackTarget = this.clampStack(down.sy + dy * k * 2.4); }
+    const cv = r.domElement, fingers = new Set<number>();
+    let down: { x: number; y: number; sy: number; moved: boolean; ground: THREE.Vector3 | null } | null = null;
+    cv.addEventListener('pointerdown', e => {
+      fingers.add(e.pointerId);
+      // a second finger turns and zooms instead; a tap still picks
+      down = fingers.size === 1 && e.button === 0 ? { x: e.clientX, y: e.clientY, sy: this.stackTarget, moved: false, ground: this.groundAt(e) } : null;
     });
-    cv.addEventListener('pointerup', e => { if (down && !down.moved) this.pick(e); down = null; });
-    cv.addEventListener('pointercancel', () => { down = null; });
+    cv.addEventListener('pointermove', e => {
+      if (!down || fingers.size !== 1) return; const dx = e.clientX - down.x, dy = e.clientY - down.y; if (Math.hypot(dx, dy) > 8) down.moved = true;
+      if (this.mode === 'stack') { const k = this.el.clientHeight / (cv.getBoundingClientRect().height || 1); this.stackTarget = this.clampStack(down.sy + dy * k * 2.4); return; }
+      // the spot of ground under the finger stays under the finger
+      const g = this.groundAt(e); if (!down.ground || !g || !down.moved) return;
+      const shift = down.ground.clone().sub(g); shift.y = 0;
+      this.controls.target.add(shift); this.camera.position.add(shift); this.keepInView();
+    });
+    const up = (e: PointerEvent) => { fingers.delete(e.pointerId); if (e.type === 'pointerup' && down && !down.moved) this.pick(e); down = null; };
+    cv.addEventListener('pointerup', up);
+    cv.addEventListener('pointercancel', up);
     cv.addEventListener('wheel', e => { if (this.mode !== 'stack') return; e.preventDefault(); this.stackTarget = this.clampStack(this.stackTarget - e.deltaY * 1.4); }, { passive: false });
     this.loop();
   }
@@ -321,6 +337,22 @@ export class MapScene {
     if (mode === 'month') { c.target.set(0, 0, 20); cam.position.set(0, 1450, 1750); c.minDistance = 1200; c.maxDistance = 3200; }
     if (mode === 'stack') { this.stackY = this.stackTarget = 0; }
     this.fitCamera(); c.update();
+  }
+
+  /** The point on the ground (y = 0) under the pointer, or null when it points at the sky. */
+  private groundAt(e: PointerEvent): THREE.Vector3 | null {
+    const r = this.renderer.domElement.getBoundingClientRect(), rc = new THREE.Raycaster();
+    rc.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), this.camera);
+    return rc.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), new THREE.Vector3());
+  }
+
+  /** Dragging can't lose the map: the point the camera looks at stays over the island / month. */
+  private keepInView() {
+    if (!this.mode || this.mode === 'stack') return;
+    const c = this.controls, t = c.target, [bx, bz] = this.mode === 'place' ? [280, 190] : [800, 600];
+    const x = clamp(t.x, -bx, bx), z = clamp(t.z, -bz, bz);
+    if (x === t.x && z === t.z) return;
+    this.camera.position.x += x - t.x; this.camera.position.z += z - t.z; t.x = x; t.z = z;
   }
 
   /** Portrait screens are narrow: pull the camera back so the whole island / map still fits. */

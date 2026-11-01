@@ -25,6 +25,7 @@ const Guess = z.object({
   place: z.enum(PLACES),
 });
 const Recognition = Guess.extend({
+  is_drawing: z.boolean().describe('true when the image shows a hand drawing on paper. false for anything else: a photo of a face, a room, a hand, a toy, a printed picture or a screen.'),
   confidence: z.number().describe('0 to 1. How sure you are about kind.'),
   alternatives: z.array(Guess).describe('Up to 3 other things it could be, most likely first.'),
 });
@@ -49,6 +50,7 @@ Pick a motion that will bring it to life on a small floating island:
 - breathe: buildings, food, cups, objects that just sit there, or when you are unsure
 - none: only if nothing else fits
 place: "sky" for things that are up high (birds, sun, moon, kites, clouds, planes, stars), "water" for things in water (fish, boats, waves), otherwise "ground".
+Only drawings belong on the map. If the image is not a hand drawing on paper (a photo of a person, a room, an object, a printed picture, a screen), set is_drawing to false.
 If you really cannot tell, use your best guess from the prompt, set confidence low, and use motion "breathe".`;
 
 /**
@@ -75,7 +77,8 @@ export async function recognise(body) {
       }],
     });
     if (res.stop_reason === 'refusal' || !res.parsed_output) return { status: 502, json: { error: 'no_answer' } };
-    const out = res.parsed_output;
+    const { is_drawing, ...out } = res.parsed_output;
+    if (is_drawing === false) return { status: 200, json: { ...out, notDrawing: true } };
     out.kind = out.kind.toLowerCase().trim().split(/\s+/).pop() || 'thing';
     out.confidence = Math.max(0, Math.min(1, out.confidence));
     if (out.confidence < 0.35) out.motion = 'breathe';

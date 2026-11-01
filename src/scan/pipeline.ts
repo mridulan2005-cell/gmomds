@@ -13,7 +13,7 @@ export interface Vector {
   /** The drawing itself, white-balanced, covering artBox [x0, y0, x1, y1] of the 64 box: printed on the 3D cut-out. */
   art?: Img; artBox?: [number, number, number, number];
 }
-export type ScanError = 'empty' | 'blurry' | 'no-paper';
+export type ScanError = 'empty' | 'blurry' | 'no-paper' | 'not-drawing';
 export interface ScanResult {
   ok: boolean;
   error?: ScanError;
@@ -270,6 +270,43 @@ function despeckle(m: Uint8Array, w: number, h: number, minArea: number): Uint8A
   return o;
 }
 
+/**
+ * Keep only the drawing: drop marks that touch the paper's edge (shadows, the tray, the table) and
+ * small stray specks far away from the drawing (smudges, a crease), unless they are a big part of it.
+ */
+export function onlyDrawing(m: Uint8Array, w: number, h: number): Uint8Array {
+  const { lab, sizes } = label(m, w, h), n = sizes.length;
+  if (n <= 1) return m;
+  const box = Array.from({ length: n }, () => ({ x0: w, y0: h, x1: -1, y1: -1 })), edge = new Uint8Array(n), b = Math.round(Math.max(w, h) * 0.03) + 2;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const l = lab[y * w + x]; if (!l) continue; const r = box[l];
+    if (x < r.x0) r.x0 = x; if (x > r.x1) r.x1 = x; if (y < r.y0) r.y0 = y; if (y > r.y1) r.y1 = y;
+    if (x < b || y < b || x >= w - b || y >= h - b) edge[l] = 1;
+  }
+  // an edge mark goes when it is a thin strip along the edge, or small next to the drawing in the middle
+  let inner = 0; for (let l = 1; l < n; l++) if (!edge[l]) inner = Math.max(inner, sizes[l]);
+  const keep = new Uint8Array(n);
+  for (let l = 1; l < n; l++) {
+    const r = box[l], strip = Math.min(r.x1 - r.x0, r.y1 - r.y0) < Math.max(w, h) * 0.06;
+    keep[l] = edge[l] && inner && (strip || sizes[l] < inner * 0.35) ? 0 : 1;
+  }
+  let total = 0; for (let l = 1; l < n; l++) if (keep[l]) total += sizes[l];
+  // the main drawing: every kept mark that is a real part of it
+  let mx0 = w, my0 = h, mx1 = -1, my1 = -1;
+  for (let l = 1; l < n; l++) if (keep[l] && sizes[l] >= total * 0.03) { const r = box[l]; mx0 = Math.min(mx0, r.x0); my0 = Math.min(my0, r.y0); mx1 = Math.max(mx1, r.x1); my1 = Math.max(my1, r.y1); }
+  if (mx1 >= 0) {
+    const reach = Math.max(mx1 - mx0, my1 - my0, Math.max(w, h) * 0.1) * 0.2;
+    for (let l = 1; l < n; l++) {
+      if (!keep[l] || sizes[l] >= total * 0.03) continue;
+      const r = box[l], dx = Math.max(0, mx0 - r.x1, r.x0 - mx1), dy = Math.max(0, my0 - r.y1, r.y0 - my1);
+      if (Math.hypot(dx, dy) > reach) keep[l] = 0;
+    }
+  }
+  const o = new Uint8Array(w * h);
+  for (let i = 0; i < o.length; i++) if (lab[i] && keep[lab[i]]) o[i] = 1;
+  return o;
+}
+
 function bbox(m: Uint8Array, w: number, h: number) {
   let x0 = w, y0 = h, x1 = -1, y1 = -1;
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (m[y * w + x]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
@@ -516,40 +553,53 @@ export function vectorise(mask: Uint8Array, mw: number, mh: number, colour?: Img
     return hex(r * boost, g * boost, b * boost);
   });
   const out: Vector = { f, s: sOut, fc };
-  if (colour) Object.assign(out, cutout(M, solid, w, h, colour, k, ox, oy));
+  if (colour) Object.assign(out, cutout(mask, mw, mh, solid, w, h, colour, k, ox, oy));
   return out;
 }
 
 /**
  * The drawing as a cut-out: the silhouette of everything drawn (regions plus lines), and the real photo of it.
  * The 3D object is this silhouette given depth, with the drawing printed on it, so nothing is redrawn or changed.
+ * It is traced on a finer grid than the regions and strokes, so thin lines and small details keep their exact shape.
  */
-function cutout(M: Uint8Array, solid: Uint8Array, w: number, h: number, colour: Img, k: number, ox: number, oy: number) {
-  let S: Uint8Array = dilate(M, w, h, 1);
-  for (let i = 0; i < S.length; i++) if (solid[i]) S[i] = 1;
-  S = despeckle(S, w, h, 4);
-  const T = (p: Pt): string => (p[0] * k + ox).toFixed(2) + ' ' + (p[1] * k + oy).toFixed(2);
-  const ring = (c: Pt[]) => { const q = capPoints(rdpClosed(chaikin(c, true, 1), 0.45), 220); return q.length >= 3 ? 'M' + q.map(T).join('L') + 'Z' : null; };
-  const fg = label(S, w, h, true), outer: string[] = [];
-  for (let id = 1; id < fg.sizes.length; id++) { const r = ring(traceContour(fg.lab, w, h, id)); if (r) outer.push(r); }
-  const bgl = label(S.map(v => (v ? 0 : 1)) as Uint8Array, w, h, false), edge = new Set<number>(), holes: string[] = [];
-  for (let x = 0; x < w; x++) { edge.add(bgl.lab[x]); edge.add(bgl.lab[(h - 1) * w + x]); }
-  for (let y = 0; y < h; y++) { edge.add(bgl.lab[y * w]); edge.add(bgl.lab[y * w + w - 1]); }
-  for (let id = 1; id < bgl.sizes.length; id++) { if (edge.has(id) || bgl.sizes[id] < 6) continue; const r = ring(traceContour(bgl.lab, w, h, id)); if (r) holes.push(r); }
+function cutout(mask: Uint8Array, mw: number, mh: number, solid: Uint8Array, w: number, h: number, colour: Img, k: number, ox: number, oy: number) {
+  const hs = Math.min(1, 420 / Math.max(mw, mh)), W = Math.max(4, Math.round(mw * hs)), H = Math.max(4, Math.round(mh * hs));
+  const cov = new Float32Array(W * H), cnt = new Float32Array(W * H);
+  for (let y = 0; y < mh; y++) for (let x = 0; x < mw; x++) { const j = Math.min(H - 1, Math.floor(y * hs)) * W + Math.min(W - 1, Math.floor(x * hs)); cnt[j]++; if (mask[y * mw + x]) cov[j]++; }
+  let S: Uint8Array = new Uint8Array(W * H);
+  for (let i = 0; i < S.length; i++) S[i] = cnt[i] && cov[i] / cnt[i] > 0.15 ? 1 : 0;
+  S = dilate(S, W, H, 1);
+  // enclosed regions (found on the coarser grid) are filled in, so a body is solid, not just its outline
+  const fw = w / W, fh = h / H;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (solid[Math.min(h - 1, Math.floor((y + 0.5) * fh)) * w + Math.min(w - 1, Math.floor((x + 0.5) * fw))]) S[y * W + x] = 1;
+  S = despeckle(S, W, H, 8);
+  const T = (p: Pt): string => (p[0] * fw * k + ox).toFixed(2) + ' ' + (p[1] * fh * k + oy).toFixed(2);
+  const ring = (c: Pt[]) => { const q = capPoints(rdpClosed(chaikin(c, true, 1), 0.5), 420); return q.length >= 3 ? 'M' + q.map(T).join('L') + 'Z' : null; };
+  const fg = label(S, W, H, true), outer: string[] = [];
+  for (let id = 1; id < fg.sizes.length; id++) { const r = ring(traceContour(fg.lab, W, H, id)); if (r) outer.push(r); }
+  const bgl = label(S.map(v => (v ? 0 : 1)) as Uint8Array, W, H, false), edge = new Set<number>(), holes: string[] = [];
+  for (let x = 0; x < W; x++) { edge.add(bgl.lab[x]); edge.add(bgl.lab[(H - 1) * W + x]); }
+  for (let y = 0; y < H; y++) { edge.add(bgl.lab[y * W]); edge.add(bgl.lab[y * W + W - 1]); }
+  for (let id = 1; id < bgl.sizes.length; id++) { if (edge.has(id) || bgl.sizes[id] < 12) continue; const r = ring(traceContour(bgl.lab, W, H, id)); if (r) holes.push(r); }
 
-  // the photo of the drawing over the silhouette's box, with the paper made white (crayon and ink keep their colours)
-  const bb = bbox(S, w, h) || { x0: 0, y0: 0, x1: w - 1, y1: h - 1 };
-  const bx0 = Math.max(0, bb.x0 - 1), by0 = Math.max(0, bb.y0 - 1), bx1 = Math.min(w - 1, bb.x1 + 1), by1 = Math.min(h - 1, bb.y1 + 1);
-  const cs = colour.width / w, regW = (bx1 - bx0 + 1) * cs, regH = (by1 - by0 + 1) * cs, sc = Math.min(1, 512 / Math.max(regW, regH));
+  // the photo of the drawing over the silhouette's box, with the paper made clean white (crayon and ink keep their colours)
+  const bb = bbox(S, W, H) || { x0: 0, y0: 0, x1: W - 1, y1: H - 1 };
+  const bx0 = Math.max(0, bb.x0 - 1), by0 = Math.max(0, bb.y0 - 1), bx1 = Math.min(W - 1, bb.x1 + 1), by1 = Math.min(H - 1, bb.y1 + 1);
+  const cs = colour.width / W, regW = (bx1 - bx0 + 1) * cs, regH = (by1 - by0 + 1) * cs, sc = Math.min(1, 1024 / Math.max(regW, regH));
   const AW = Math.max(8, Math.round(regW * sc)), AH = Math.max(8, Math.round(regH * sc)), art = new Uint8ClampedArray(AW * AH * 4);
   const white = [0, 1, 2].map(c => { const v: number[] = []; for (let j = c; j < colour.data.length; j += 4 * 7) v.push(colour.data[j]); v.sort((a, b) => a - b); return Math.max(60, v[Math.floor(v.length * 0.95)] || 255); });
+  // the paper's own brightness at each spot, so a shadow across the sheet does not print grey
+  const bg = background(toGray(colour), colour.width, colour.height), wl = (0.299 * white[0] + 0.587 * white[1] + 0.114 * white[2]) / 255;
   for (let y = 0; y < AH; y++) for (let x = 0; x < AW; x++) {
     const cx = Math.min(colour.width - 1, Math.floor(bx0 * cs + ((x + 0.5) / AW) * regW)), cy = Math.min(colour.height - 1, Math.floor(by0 * cs + ((y + 0.5) / AH) * regH));
-    const j = (cy * colour.width + cx) * 4, o = (y * AW + x) * 4;
-    for (let c = 0; c < 3; c++) art[o + c] = Math.min(255, (colour.data[j + c] * 255) / white[c]);
-    art[o + 3] = 255;
+    const j = (cy * colour.width + cx) * 4, o = (y * AW + x) * 4, lift = clamp(wl / Math.max(0.2, bg[cy * colour.width + cx]), 1, 2);
+    let r = (colour.data[j] * 255 * lift) / white[0], g = (colour.data[j + 1] * 255 * lift) / white[1], b = (colour.data[j + 2] * 255 * lift) / white[2];
+    // near-white, unsaturated pixels are paper: make them clean white
+    const l = (r + g + b) / 3, mx = Math.max(r, g, b), sat = mx ? (mx - Math.min(r, g, b)) / mx : 0;
+    if (sat < 0.18 && l > 200) { const t = clamp((l - 200) / 30, 0, 1); r += (255 - r) * t; g += (255 - g) * t; b += (255 - b) * t; }
+    art[o] = r; art[o + 1] = g; art[o + 2] = b; art[o + 3] = 255;
   }
-  const artBox: [number, number, number, number] = [bx0 * k + ox, by0 * k + oy, (bx1 + 1) * k + ox, (by1 + 1) * k + oy];
+  const artBox: [number, number, number, number] = [bx0 * fw * k + ox, by0 * fh * k + oy, (bx1 + 1) * fw * k + ox, (by1 + 1) * fh * k + oy];
   return { sil: { outer, holes }, art: { width: AW, height: AH, data: art } as Img, artBox };
 }
 
@@ -561,6 +611,9 @@ export function processScan(photo: Img, opts: { minSharpness?: number } = {}): S
   const w = paper.width, h = paper.height;
   let m: Uint8Array = inkMask(paper);
   m = despeckle(m, w, h, Math.max(6, Math.round(w * h * 0.00004)));
+  // a photo of a room or a face is mostly "ink"; a drawing on paper is mostly paper
+  if (m.reduce((a, v) => a + v, 0) > w * h * 0.55) return { ok: false, error: 'not-drawing', quad };
+  m = onlyDrawing(m, w, h);
   const inkCount = m.reduce((a, v) => a + v, 0);
   if (inkCount < w * h * 0.0015) return { ok: false, error: 'empty', quad };
   const g = toGray(paper), sharp = sharpness(g, m, w, h);

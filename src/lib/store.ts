@@ -104,6 +104,15 @@ export function addDrawing(d: Drawing) {
     place.pairs.push(pair); s.scanning = null; s.lastFresh = { placeId: place.id, slot: pair.slot };
   });
 }
+/** A retake: the new scan takes the old one's place (in the pair on the map, or the scan in progress). */
+export function replaceDrawing(oldId: string, d: Drawing) {
+  update(s => {
+    s.drawings[d.id] = d; delete s.drawings[oldId];
+    for (const m of s.months) for (const p of m.places) for (const pr of p.pairs) { if (pr.dadi === oldId) pr.dadi = d.id; if (pr.child === oldId) pr.child = d.id; }
+    if (s.scanning?.dadi === oldId) s.scanning.dadi = d.id;
+  });
+  for (const k of ['scan:' + oldId, 'art:' + oldId]) { const u = urlCache.get(k); if (u) URL.revokeObjectURL(u); urlCache.delete(k); void del(k).catch(() => {}); }
+}
 export function updateDrawing(id: string, patch: Partial<Drawing>) { update(s => { if (s.drawings[id]) Object.assign(s.drawings[id], patch); }); }
 export function clearFresh() { if (state.lastFresh) update(s => { s.lastFresh = null; }); }
 
@@ -126,7 +135,7 @@ export function finishOnboarding(names: { dadi: string; child: string }, loves: 
 }
 
 export async function resetAll() {
-  try { for (const k of await keys()) if (String(k).startsWith('scan:') || k === KEY) await del(k); } catch { /* ignore */ }
+  try { for (const k of await keys()) if (String(k).startsWith('scan:') || String(k).startsWith('art:') || k === KEY) await del(k); } catch { /* ignore */ }
   state = fresh(); emit(); persist();
 }
 
