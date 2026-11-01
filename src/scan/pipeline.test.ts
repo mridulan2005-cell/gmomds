@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { inflateSync } from 'node:zlib';
 import { detectPaper, detectSheet, processScan, type Img, type Pt } from './pipeline';
 
 // A tiny rasteriser for synthetic "photos".
@@ -35,6 +37,23 @@ class Path2DLike {
     for (let i = 0, j = p.length - 1; i < p.length; j = i++) if ((p[i][1] > y) !== (p[j][1] > y) && x < ((p[j][0] - p[i][0]) * (y - p[i][1])) / (p[j][1] - p[i][1]) + p[i][0]) c = !c;
     return c;
   }
+}
+// Real photos from families' scans (8-bit RGB PNG), decoded with a tiny PNG reader.
+function photoFile(name: string): Img {
+  const buf = readFileSync(new URL('./fixtures/' + name, import.meta.url));
+  const w = buf.readUInt32BE(16), h = buf.readUInt32BE(20), idat: Buffer[] = [];
+  for (let o = 8; o < buf.length;) { const len = buf.readUInt32BE(o), type = buf.toString('ascii', o + 4, o + 8); if (type === 'IDAT') idat.push(buf.subarray(o + 8, o + 8 + len)); o += 12 + len; }
+  const raw = inflateSync(Buffer.concat(idat)), bpp = 3, stride = w * bpp, px = new Uint8Array(stride * h);
+  for (let y = 0; y < h; y++) {
+    const f = raw[y * (stride + 1)], line = raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1)), o = y * stride;
+    for (let x = 0; x < stride; x++) {
+      const a = x >= bpp ? px[o + x - bpp] : 0, b = y ? px[o - stride + x] : 0, c = x >= bpp && y ? px[o - stride + x - bpp] : 0;
+      const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
+      px[o + x] = (line[x] + (f === 1 ? a : f === 2 ? b : f === 3 ? (a + b) >> 1 : f === 4 ? (pa <= pb && pa <= pc ? a : pb <= pc ? b : c) : 0)) & 255;
+    }
+  }
+  const data = new Uint8ClampedArray(w * h * 4); for (let i = 0; i < w * h; i++) data.set([px[i * 3], px[i * 3 + 1], px[i * 3 + 2], 255], i * 4);
+  return { width: w, height: h, data };
 }
 const ellipse = (cx: number, cy: number, rx: number, ry: number, n = 60): Pt[] => Array.from({ length: n + 1 }, (_, i) => [cx + rx * Math.cos((i / n) * 2 * Math.PI), cy + ry * Math.sin((i / n) * 2 * Math.PI)] as Pt);
 
@@ -123,6 +142,18 @@ describe('scan pipeline', () => {
     stroke(img, [[634, 504], [631, 522]], 1.2, [120, 120, 125]);
     expect(processScan(img)).toMatchObject({ ok: true });
   });
+
+  // A real scan: a light pencil boat with a stick figure, held close in dim light, a sofa behind (a family's photo)
+  it('scans a light pencil drawing from a real, soft, dim photo', () => {
+    const img = photoFile('boat-pencil.png');
+    const q = detectPaper(img)!;
+    expect(q).not.toBeNull();
+    expect(Math.min(q[0][1], q[1][1])).toBeLessThan(400); // the whole sheet, not just the part below the boat
+    const r = processScan(img);
+    expect(r).toMatchObject({ ok: true });
+    expect(r.vector!.sil!.outer.length).toBe(1);
+    expect(r.crop!.height).toBeGreaterThan(r.crop!.width * 0.7); // sail and hull together
+  }, 30000);
 
   it('says "empty" for a blank page', () => {
     const img = canvas(640, 480, [92, 70, 55]);

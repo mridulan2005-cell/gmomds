@@ -348,8 +348,11 @@ function findSheet(img: Img, maxSide: number, log?: object[], flat = false): Fou
     const { pass, seen, total, onFrame, cx, cy, weakest, lighter } = sides(q);
     // four straight lines can enclose any patch: each side must be an edge, with the sheet on its lighter side
     if (strict && (weakest < 0.45 || lighter < 0.7)) { log?.push({ q, why: 'edge', fill, edge: weakest }); return; }
-    const fillsView = onFrame > total * 0.55 && qa > N * 0.5; // the paper fills most of the view: its sides are the frame
-    const edge = fillsView ? 0.8 : seen >= total * 0.25 ? pass / seen : 0.4;
+    // the paper fills most of the view: its sides are the frame. If the sides that are in view are real edges
+    // (a sheet held close, running off the left and right of the picture), it is a sheet like any other.
+    const runsOff = onFrame > total * 0.55 && qa > N * 0.5, edgesSeen = seen >= total * 0.15 && pass / seen >= 0.6;
+    const fillsView = runsOff && !edgesSeen;
+    const edge = fillsView ? 0.8 : seen >= total * (runsOff ? 0.15 : 0.25) ? pass / seen : 0.4;
     if (!fillsView && edge < (strict ? 0.6 : 0.35)) { log?.push({ q, why: 'edge', fill, edge, seen, total }); return; }
     const centre = 1 - Math.min(0.8, Math.hypot(cx / w - 0.5, cy / h - 0.5) * 1.3);
     const white = Math.min(1, Math.max(0.2, ((lit ? light / lit : 0) - 0.25) / 0.55)); // drawing paper is white: of two cards, the whiter
@@ -479,8 +482,10 @@ export function drawingArea(img: Img, flat = false): Uint8Array {
   const inHull = new Uint8Array(w * h);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) inHull[y * w + x] = hp.length >= 3 && pointInPoly(x + 0.5, y + 0.5, hp) ? 1 : 0;
   const shadow = dilate(erode(c.grey, w, h, 2), w, h, 2); // thick soft grey, not thin pencil lines
+  // on the flattened sheet, strong red and orange is crayon (a sun, a mouth), not a hand
+  const skin = flat ? c.skin.map((v, i) => (v && c.sat[i] < 0.7 ? 1 : 0)) as Uint8Array : c.skin;
   // flood in from the edge of the view: anything outside the sheet, and over the sheet only hands and their shadows
-  const out = new Uint8Array(w * h), pass = (i: number) => !P[i] && (!inHull[i] || c.skin[i] || shadow[i]), st: number[] = [];
+  const out = new Uint8Array(w * h), pass = (i: number) => !P[i] && (!inHull[i] || skin[i] || shadow[i]), st: number[] = [];
   const seed = (i: number) => { if (!out[i] && pass(i)) { out[i] = 1; st.push(i); } };
   for (let x = 0; x < w; x++) { seed(x); seed((h - 1) * w + x); } for (let y = 0; y < h; y++) { seed(y * w); seed(y * w + w - 1); }
   while (st.length) {
@@ -499,8 +504,13 @@ export function drawingArea(img: Img, flat = false): Uint8Array {
       if (gone[j]) byHand[l]++; else if (P[j]) byPaper[l]++;
     }
   }
+  // on the flattened sheet a drawing may run up to the paper's edge (a head, a sun in the corner): only marks lying
+  // along an edge (a strip of table, a sleeve) reach in from outside
+  const along = new Float64Array(rl.sizes.length);
+  if (flat) { for (let x = 0; x < w; x++) { along[rl.lab[x]]++; along[rl.lab[(h - 1) * w + x]]++; } for (let y = 0; y < h; y++) { along[rl.lab[y * w]]++; along[rl.lab[y * w + w - 1]]++; } }
+  const fromOutside = (l: number) => edge.has(l) && (!flat || along[l] > Math.min(w, h) * 0.08);
   const ok = new Uint8Array(w * h);
-  for (let i = 0; i < ok.length; i++) { const l = rl.lab[i]; ok[i] = !gone[i] && (P[i] || (l && !edge.has(l) && byPaper[l] >= byHand[l])) ? 1 : 0; }
+  for (let i = 0; i < ok.length; i++) { const l = rl.lab[i]; ok[i] = !gone[i] && (P[i] || (l && !fromOutside(l) && byPaper[l] >= byHand[l])) ? 1 : 0; }
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) area[y * W + x] = ok[Math.min(h - 1, Math.floor((y * h) / H)) * w + Math.min(w - 1, Math.floor((x * w) / W))];
   return area;
 }
@@ -569,9 +579,25 @@ export function inkMask(paper: Img): Uint8Array {
   // a big coloured-in area can fool the local estimate; paper is never much darker than the sheet's bright level
   const sorted = Float32Array.from(g.filter((_, i) => i % 7 === 0)).sort(), p90 = sorted[Math.floor(sorted.length * 0.9)] || 1;
   for (let i = 0; i < bg.length; i++) bg[i] = Math.max(bg[i], p90 * 0.85);
+  // dark ink, crayon: much darker than the brightest paper nearby
+  const dk = new Float32Array(w * h); for (let i = 0; i < dk.length; i++) dk[i] = 1 - g[i] / Math.max(0.15, bg[i]);
+  // light pencil in a soft, unevenly lit photo can be only ~10% darker than the paper right around it: compare each
+  // spot with the average paper around it, and set the cut-off just above the paper's own grain in this photo
+  const R = Math.max(4, Math.round(Math.max(w, h) / 45)), gs = boxBlur(g, w, h, 1), around = boxBlur(boxBlur(gs, w, h, R), w, h, R);
+  const lc = new Float32Array(w * h); for (let i = 0; i < lc.length; i++) lc[i] = 1 - gs[i] / Math.max(0.1, around[i]);
+  // a pencil line is darker than the paper a few pixels beside it; a soft shadow is not (it fades out slowly)
+  const r2 = Math.max(3, Math.round(Math.max(w, h) / 220)), near = boxBlur(gs, w, h, r2 * 2), line = new Float32Array(w * h);
+  for (let i = 0; i < line.length; i++) line[i] = 1 - gs[i] / Math.max(0.1, near[i]);
+  const ls = Float32Array.from(lc.filter((_, i) => i % 5 === 0)).sort(), med = ls[Math.floor(ls.length / 2)] || 0;
+  const mad = Float32Array.from(ls.map(v => Math.abs(v - med))).sort()[Math.floor(ls.length / 2)] || 0.01;
+  const strong = Math.max(0.05, med + 8 * 1.4826 * mad), weak = Math.max(0.03, med + 4.5 * 1.4826 * mad), st: number[] = [];
   for (let i = 0, j = 0; i < m.length; i++, j += 4) {
-    const r = g[i] / Math.max(0.15, bg[i]);
-    m[i] = r < 0.72 || (saturation(data, j) > 0.3 && g[i] < p90 * 0.96) ? 1 : 0; // pencil/pen, or crayon colour
+    if (dk[i] > 0.28 || (lc[i] > strong && line[i] > strong * 0.5) || (saturation(data, j) > 0.3 && g[i] < p90 * 0.96)) { m[i] = 1; st.push(i); } // pencil/pen, or crayon colour
+  }
+  // follow a line from its darker parts into its fainter parts
+  while (st.length) {
+    const i = st.pop()!, x = i % w;
+    for (const d of [-w - 1, -w, -w + 1, -1, 1, w - 1, w, w + 1]) { const j = i + d; if (j < 0 || j >= m.length || m[j] || Math.abs((j % w) - x) > 1 || ((lc[j] <= weak || line[j] <= weak * 0.4) && dk[j] <= 0.18)) continue; m[j] = 1; st.push(j); }
   }
   // ignore a thin margin, where the paper edge and the tray can creep in
   const mx = Math.round(w * 0.025), my = Math.round(h * 0.025);
@@ -636,12 +662,17 @@ function cropImg(img: Img, x0: number, y0: number, w: number, h: number): Img {
 
 /** Edge sharpness: mean gradient across ink edges, relative to the ink contrast. Low = blurry photo. */
 function sharpness(g: Float32Array, m: Uint8Array, w: number, h: number): number {
-  let sum = 0, n = 0;
+  let sum = 0, n = 0, ink = 0, ni = 0;
   for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
-    const i = y * w + x; if (!m[i] || (m[i - 1] && m[i + 1] && m[i - w] && m[i + w])) continue;
+    const i = y * w + x; if (!m[i]) continue; ink += g[i]; ni++;
+    if (m[i - 1] && m[i + 1] && m[i - w] && m[i + w]) continue;
     const gx = g[i + 1] - g[i - 1], gy = g[i + w] - g[i - w]; sum += Math.hypot(gx, gy); n++;
   }
-  return n ? sum / n : 0;
+  if (!n) return 0;
+  // measured against how dark the lines are: light pencil has gentle edges even when it is in focus
+  const paper = Float32Array.from(g.filter((_, i) => i % 9 === 0)).sort()[Math.floor(g.length / 18)] || 1;
+  const contrast = Math.max(0.05, paper - ink / ni);
+  return (sum / n) * Math.min(4, Math.max(1, 0.5 / contrast));
 }
 
 // ---------- 4. vectorise ----------
@@ -917,14 +948,25 @@ function cutout(mask: Uint8Array, mw: number, mh: number, solid: Uint8Array, w: 
   const white = [0, 1, 2].map(c => { const v: number[] = []; for (let j = c; j < colour.data.length; j += 4 * 7) v.push(colour.data[j]); v.sort((a, b) => a - b); return Math.max(60, v[Math.floor(v.length * 0.95)] || 255); });
   // the paper's own brightness at each spot, so a shadow across the sheet does not print grey
   const bg = background(toGray(colour), colour.width, colour.height), wl = (0.299 * white[0] + 0.587 * white[1] + 0.114 * white[2]) / 255;
-  for (let y = 0; y < AH; y++) for (let x = 0; x < AW; x++) {
+  const px = (x: number, y: number) => {
     const cx = Math.min(colour.width - 1, Math.floor(bx0 * cs + ((x + 0.5) / AW) * regW)), cy = Math.min(colour.height - 1, Math.floor(by0 * cs + ((y + 0.5) / AH) * regH));
-    const j = (cy * colour.width + cx) * 4, o = (y * AW + x) * 4, lift = clamp(wl / Math.max(0.2, bg[cy * colour.width + cx]), 1, 2);
-    let r = (colour.data[j] * 255 * lift) / white[0], g = (colour.data[j + 1] * 255 * lift) / white[1], b = (colour.data[j + 2] * 255 * lift) / white[2];
-    // near-white, unsaturated pixels are paper: make them clean white
-    const l = (r + g + b) / 3, mx = Math.max(r, g, b), sat = mx ? (mx - Math.min(r, g, b)) / mx : 0;
-    if (sat < 0.18 && l > 200) { const t = clamp((l - 200) / 30, 0, 1); r += (255 - r) * t; g += (255 - g) * t; b += (255 - b) * t; }
-    art[o] = r; art[o + 1] = g; art[o + 2] = b; art[o + 3] = 255;
+    const j = (cy * colour.width + cx) * 4, lift = clamp(wl / Math.max(0.2, bg[cy * colour.width + cx]), 1, 2);
+    return [(colour.data[j] * 255 * lift) / white[0], (colour.data[j + 1] * 255 * lift) / white[1], (colour.data[j + 2] * 255 * lift) / white[2]];
+  };
+  // each spot against the paper right around it: plain paper (whatever the light) becomes clean white, and light
+  // pencil, which a soft photo makes pale grey, is deepened so the darkest lines read like a pencil drawing
+  const P = new Float32Array(AW * AH * 3), L = new Float32Array(AW * AH);
+  for (let y = 0; y < AH; y++) for (let x = 0; x < AW; x++) { const i = y * AW + x, v = px(x, y); P.set(v, i * 3); L[i] = Math.min(1, (v[0] + v[1] + v[2]) / 765); }
+  const paperL = background(L, AW, AH), dark = new Float32Array(AW * AH);
+  for (let i = 0; i < dark.length; i++) dark[i] = Math.max(0, 1 - L[i] / Math.max(0.2, paperL[i]));
+  const ds = Float32Array.from(dark.filter((_, i) => i % 3 === 0)).sort(), grain = ds[Math.floor(ds.length * 0.5)] + 0.02, deepest = ds[Math.floor(ds.length * 0.995)] || 0.3;
+  const deepen = clamp(0.65 / Math.max(0.05, deepest - grain), 1, 6);
+  for (let i = 0; i < dark.length; i++) {
+    const o = i * 4, r = P[i * 3], g = P[i * 3 + 1], b = P[i * 3 + 2], mx = Math.max(r, g, b), sat = mx ? (mx - Math.min(r, g, b)) / mx : 0;
+    const v = 255 * (1 - clamp((dark[i] - grain) * deepen, 0, 0.75)); // pencil grey, or white paper
+    if (sat < 0.25) { art[o] = art[o + 1] = art[o + 2] = v; }
+    else { const t = clamp((sat - 0.25) / 0.2, 0, 1); art[o] = v + (Math.min(255, r) - v) * t; art[o + 1] = v + (Math.min(255, g) - v) * t; art[o + 2] = v + (Math.min(255, b) - v) * t; } // crayon keeps its colour
+    art[o + 3] = 255;
   }
   const artBox: [number, number, number, number] = [bx0 * fw * k + ox, by0 * fh * k + oy, (bx1 + 1) * fw * k + ox, (by1 + 1) * fh * k + oy];
   return { sil: { outer, holes }, art: { width: AW, height: AH, data: art } as Img, artBox };
