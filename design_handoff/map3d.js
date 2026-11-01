@@ -3,6 +3,12 @@ if (customElements.get('dadi-map3d')) return;
 const DADI='#2F5FD0', ANU='#E4572E', INK='#3d2b22', DEPTH=6, BT=2.4, STEP=900;
 const SLOTS=[[120,110],[245,100],[370,110],[90,205],[200,212],[310,205],[420,200]];
 const MPOS=[[-380,-250],[330,-180],[-330,210],[380,280]];
+const LAND=[[-700,-380],[-560,-480],[-250,-440],[-120,-510],[120,-450],[300,-480],[520,-430],[720,-300],[700,-80],[780,60],[720,200],[760,420],[570,560],[300,530],[100,580],[-120,500],[-360,540],[-610,480],[-740,300],[-680,120],[-780,-60],[-710,-200]];
+const RIV=[[-30,-620],[10,-330],[-40,-60],[30,180],[-20,420],[10,660]];
+const MTN=[[655,-200,80,150],[-655,-10,64,120],[580,-370,58,105]];
+const POND=[575,60,52];
+function inPoly(x,z){ let c=false; for(let i=0,j=LAND.length-1;i<LAND.length;j=i++){ const [xi,zi]=LAND[i],[xj,zj]=LAND[j]; if(((zi>z)!==(zj>z))&&(x<(xj-xi)*(z-zi)/(zj-zi)+xi)) c=!c; } return c; }
+function rivX(z){ for(let i=1;i<RIV.length;i++){ if(z<=RIV[i][1]){ const [x0,z0]=RIV[i-1],[x1,z1]=RIV[i]; return x0+(x1-x0)*(z-z0)/(z1-z0); } } return RIV[RIV.length-1][0]; }
 let LIBP=null;
 function lib(){ return LIBP||(LIBP=Promise.all([
   import('https://esm.sh/three@0.160.0'),
@@ -124,7 +130,7 @@ class DadiMap extends HTMLElement{
     if(st!=='locked') (p.pairs||[]).forEach((pr,j)=>{ const [u,v]=SLOTS[j]; [[pr[0],'d',-32,0],[pr[1],'a',32,10]].forEach(([k,w,du,dv],side)=>{ const rise=o.fresh===j?t0+(side?1.2:.35):0; const b=this.drawing(k,w,o.S||72,rise); b.position.set(u-240+du,3,v-140+dv); G.add(b); }); });
     if(st==='current'&&o.q){ const q=this.sprite('?',{size:150,color:'#8E7FD0'}); q.position.set(0,150,0); G.add(q); this.qs.push(q); }
     if(st==='locked'){ const l=this.lockSprite(o.lockK||1.4); l.position.set(0,70,0); G.add(l); }
-    if(o.label){ const s=this.sprite(o.label,{size:46,pill:true,bg:st==='done'?INK:'#FFF3D1',color:st==='done'?'#FFF3D1':INK,k:1.25}); s.position.set(0,215,-80); G.add(s); }
+    if(o.label){ const s=this.sprite(o.label,{size:46,pill:true,bg:st==='done'?INK:'#FFF3D1',color:st==='done'?'#FFF3D1':INK,k:1.25}); s.position.set(0,215,-60); s.material.depthTest=false; s.renderOrder=999; G.add(s); }
     return G;
   }
   decor(p,G,fadeMat){
@@ -137,10 +143,54 @@ class DadiMap extends HTMLElement{
     const T=this.T,G=new T.Group();
     places.forEach((p,i)=>{ const lbl=p.status==='done'?p.name:p.status==='current'?'This week · '+(7-(p.pairs||[]).length)+' to go':null;
       const g=this.island(p,{label:o.labels!==false?lbl:null,q:true,pick:o.pick&&p.status!=='locked'?{type:'place',pi:i}:null,lockK:1.6}); g.position.set(MPOS[i][0],0,MPOS[i][1]); G.add(g); });
-    const pts=[[-760,-420],...MPOS,[760,520]].map(([x,z])=>new T.Vector3(x,-10,z));
+    const alive=places.every(p=>p.status==='done'); if(alive) this.land(G,o);
+    const pts=[[-760,-420],...MPOS,[760,520]].map(([x,z])=>new T.Vector3(x,alive?-19:-10,z));
     const curve=new T.CatmullRomCurve3(pts),n=Math.round(curve.getLength()/34),dot=this.dot||(this.dot=new T.SphereGeometry(7,10,8)),dm=this.toon('#FFC93C');
-    curve.getSpacedPoints(n).forEach(pt=>{ const s=new T.Mesh(dot,dm); s.position.copy(pt); G.add(s); });
-    return G;
+    curve.getSpacedPoints(n).forEach(pt=>{ if(alive&&!inPoly(pt.x,pt.z)) return; const s=new T.Mesh(dot,dm); s.position.copy(pt); G.add(s); });
+    G.userData.alive=alive; return G;
+  }
+  edge(pts,r){ const T=this.T,cp=new T.CurvePath(); for(let i=0;i<pts.length;i++) cp.add(new T.LineCurve3(pts[i],pts[(i+1)%pts.length])); return new T.TubeGeometry(cp,pts.length*6,r,5,false); }
+  land(G,o={}){
+    const T=this.T,c=this.geos;
+    if(!c.land){ const sh=new T.Shape(); LAND.forEach(([x,z],i)=>i?sh.lineTo(x,z):sh.moveTo(x,z)); sh.closePath();
+      const g=new T.ExtrudeGeometry(sh,{depth:44,bevelEnabled:true,bevelThickness:4,bevelSize:6,bevelSegments:1}); g.rotateX(Math.PI/2); g.translate(0,-30,0); c.land=g;
+      c.landTop=this.edge(LAND.map(([x,z])=>new T.Vector3(x,-25.4,z)),2.4); c.landBot=this.edge(LAND.map(([x,z])=>new T.Vector3(x,-78,z)),2);
+      c.river=new T.CatmullRomCurve3(RIV.map(([x,z])=>new T.Vector3(x,0,z)));
+      c.riverGeo=new T.TubeGeometry(c.river,120,26,8,false);
+      c.flow=new T.CapsuleGeometry(2.6,16,3,6); c.flow.rotateX(Math.PI/2);
+      c.trunk=new T.CylinderGeometry(3.5,4.5,22,6); c.trunk.translate(0,11,0);
+      c.crown=new T.IcosahedronGeometry(19,0); c.pine=new T.ConeGeometry(16,38,7);
+      c.puff=new T.IcosahedronGeometry(1,1); c.ring=new T.TorusGeometry(1,.05,6,48); c.ring.rotateX(Math.PI/2); }
+    G.add(new T.Mesh(c.land,[this.toon('#9BDB6A'),this.toon('#4E9F3D')]));
+    G.add(new T.Mesh(c.landTop,this.basic(INK))); G.add(new T.Mesh(c.landBot,this.basic(INK)));
+    const rv=new T.Mesh(c.riverGeo,this.toon('#5AB0F0')); rv.scale.y=.06; rv.position.y=-25; G.add(rv);
+    for(let i=0;i<16;i++){ const f=new T.Mesh(c.flow,this.basic('#ffffff')); G.add(f); this.flows.push({o:f,i,n:16,curve:c.river}); }
+    const pond=new T.Mesh(this.disc||(this.disc=new T.CircleGeometry(1,24)),this.toon('#5AB0F0')); pond.rotation.x=-Math.PI/2; pond.scale.setScalar(POND[2]); pond.position.set(POND[0],-24.6,POND[1]); G.add(pond);
+    const pr=new T.Mesh(c.ring,this.basic(INK)); pr.scale.set(POND[2],30,POND[2]); pr.position.set(POND[0],-24.5,POND[1]); G.add(pr);
+    for(let i=0;i<2;i++){ const m=new T.MeshBasicMaterial({color:'#ffffff',transparent:true}); const r=new T.Mesh(c.ring,m); r.position.set(POND[0],-24.2,POND[1]); G.add(r); this.ripples.push({o:r,m,ph:i*.5,R:POND[2]}); }
+    MTN.forEach(([x,z,r,h])=>{ const m=new T.Mesh(new T.ConeGeometry(r,h,7),this.toon('#6FA8DC')); m.position.set(x,-26+h/2,z); G.add(m);
+      const s=new T.Mesh(new T.ConeGeometry(r*.4,h*.4,7),this.toon('#ffffff')); s.position.set(x,-26+h-h*.2+.5,z); G.add(s); });
+    const R=rnd(11),ok=(x,z,pad)=>inPoly(x,z)&&!MPOS.some(([cx,cz])=>Math.abs(x-cx)<250+pad&&Math.abs(z-cz)<150+pad)&&Math.abs(x-rivX(z))>50&&!MTN.some(([mx,mz,mr])=>Math.hypot(x-mx,z-mz)<mr+24)&&Math.hypot(x-POND[0],z-POND[1])>POND[2]+24;
+    const greens=['#4FAE3E','#6CC24A','#3E9B48','#86CF5A'],fall=['#F29B38','#F5C84C','#E8743B'];
+    let placed=0,tries=0; while(placed<(o.lite?30:48)&&tries<3000){ tries++; const x=-780+R()*1560,z=-510+R()*1090; if(!ok(x,z,12)) continue; placed++;
+      const tg=new T.Group(); tg.position.set(x,-26,z); const sc=.8+R()*.5; tg.scale.setScalar(sc);
+      if(x>380&&z<-150||R()<.25){ const a=new T.Mesh(c.pine,this.toon('#2F8F4E')); a.position.y=22; const b=new T.Mesh(c.pine,this.toon('#3FA35A')); b.position.y=40; b.scale.setScalar(.75); tg.add(a,b); }
+      else { tg.add(new T.Mesh(c.trunk,this.toon('#8A5A3B'))); const pal=x<-420?fall:greens; const cr=new T.Mesh(c.crown,this.toon(pal[Math.floor(R()*pal.length)])); cr.position.y=34; tg.add(cr); }
+      G.add(tg); this.sway.push({o:tg,ph:R()*6}); }
+    let sh=0; tries=0; while(sh<5&&tries<2000){ tries++; const x=-700+R()*1400,z=-480+R()*1000; if(!ok(x,z,30)) continue; sh++;
+      const s=new T.Group(); const body=new T.Mesh(c.puff,this.toon('#ffffff')); body.scale.set(13,10,10); body.position.y=12; const hd=new T.Mesh(c.puff,this.toon(INK)); hd.scale.setScalar(5.5); hd.position.set(13,15,0); s.add(body,hd); s.position.set(x,-26,z); G.add(s); this.sheep.push({o:s,cx:x,cz:z,ph:R()*6}); }
+    if(!o.lite){
+      const sea=new T.Mesh(this.disc,this.toon('#7FD0C9')); sea.rotation.x=-Math.PI/2; sea.scale.setScalar(3200); sea.position.y=-82; G.add(sea);
+      for(let i=0;i<4;i++){ const cl=new T.Group(); [[0,0,30],[30,6,24],[-28,2,22],[10,16,22]].forEach(([dx,dy,r])=>{ const p=new T.Mesh(c.puff,this.toon('#ffffff')); p.scale.setScalar(r); p.position.set(dx,dy,0); cl.add(p); });
+        cl.userData.x0=-900+i*470; cl.position.set(cl.userData.x0,250+(i%2)*50,-360+i*240); G.add(cl); this.clouds.push({o:cl,v:12+i*3}); }
+      const cp=this.compass(); cp.position.set(640,0,580); G.add(cp);
+    }
+  }
+  compass(){
+    const T=this.T,cv=document.createElement('canvas'); cv.width=cv.height=200; const x=cv.getContext('2d');
+    x.fillStyle='#FFC93C'; x.strokeStyle=INK; x.lineWidth=4; [[0,-1],[1,0],[0,1],[-1,0]].forEach(([dx,dy])=>{ x.beginPath(); x.moveTo(100+dx*80,100+dy*80); x.lineTo(100+dy*22,100-dx*22); x.lineTo(100-dy*22,100+dx*22); x.closePath(); x.fill(); x.stroke(); });
+    x.fillStyle=INK; x.font='900 34px Urbanist, sans-serif'; x.textAlign='center'; x.textBaseline='middle'; x.fillText('N',100,14+4); x.fillText('S',100,188);
+    const tex=new T.CanvasTexture(cv); tex.colorSpace=T.SRGBColorSpace; const s=new T.Sprite(new T.SpriteMaterial({map:tex,transparent:true,depthWrite:false})); s.scale.set(170,170,1); return s;
   }
   board(m,i){
     const T=this.T,B=new T.Group(); B.userData.pick={type:'month',mi:i};
@@ -148,14 +198,14 @@ class DadiMap extends HTMLElement{
     const slab=new T.Mesh(this.slabGeo||(this.slabGeo=new T.BoxGeometry(1700,28,1300)),[edge,edge,cream,edge,edge,edge]); slab.position.y=-14; B.add(slab);
     if(m.current){ const e=new T.LineSegments(new T.EdgesGeometry(this.slabGeo),new T.LineDashedMaterial({color:INK,dashSize:24,gapSize:18})); e.computeLineDistances(); e.position.y=-14; B.add(e); }
     else { const e=new T.LineSegments(new T.EdgesGeometry(this.slabGeo),new T.LineBasicMaterial({color:INK})); e.position.y=-14; B.add(e); }
-    const mg=this.month(m.places,{labels:false}); mg.scale.setScalar(.85); mg.position.y=34; B.add(mg);
+    const mg=this.month(m.places,{labels:false,lite:true}); mg.scale.setScalar(.85); mg.position.y=mg.userData.alive?72:34; B.add(mg);
     if(m.current) mg.traverse(o=>{ if(o.isMesh){ const fix=x=>{ const c=x.clone(); c.transparent=true; c.opacity=Math.min(x.opacity,.5); c.depthWrite=false; return c; }; o.material=Array.isArray(o.material)?o.material.map(fix):fix(o.material); } });
     const s=this.sprite(m.name,{size:52,pill:true,bg:m.current?'#FFF3D1':INK,color:m.current?INK:'#FFF3D1',k:1.3}); s.position.set(-990,40,0); B.add(s);
     this.pickables.push(B); return B;
   }
   build(cfg){
     this.cfg=cfg; this.icons=cfg.icons||{}; this.colors=cfg.colors||{}; this.shapes=cfg.shapes||{};
-    this.root.clear(); this.items=[]; this.tweens=[]; this.anims=[]; this.qs=[]; this.pickables=[];
+    this.root.clear(); this.items=[]; this.tweens=[]; this.anims=[]; this.qs=[]; this.pickables=[]; this.flows=[]; this.sway=[]; this.sheep=[]; this.clouds=[]; this.ripples=[];
     if(cfg.mode==='place') this.root.add(this.island(cfg.place,{fresh:cfg.fresh,fade:cfg.fade,q:true,S:76}));
     else if(cfg.mode==='month') this.root.add(this.month(cfg.places,{pick:true}));
     else if(cfg.mode==='stack') cfg.months.forEach((m,i)=>{ const b=this.board(m,i); b.position.y=-i*STEP; this.root.add(b); });
@@ -204,6 +254,12 @@ class DadiMap extends HTMLElement{
     for(const tw of this.tweens){ const k=Math.min(1,(n-tw.t0)/tw.dur); tw.m.forEach(m=>{ m.opacity=k; if(k>=1){ m.transparent=false; m.needsUpdate=true; } }); }
     this.tweens=this.tweens.filter(tw=>(n-tw.t0)<tw.dur);
     for(const a of this.anims) a.o.position.x=((t*16+a.i*20)%40)-20;
+    const tv=this.T&&(this._tv||(this._tv=new this.T.Vector3()));
+    for(const f of this.flows){ const u=(t*.02+f.i/f.n)%1,p=f.curve.getPointAt(u),d=f.curve.getTangentAt(u); f.o.position.set(p.x+Math.sin(f.i*2.3)*9,-23.4,p.z); tv.set(f.o.position.x+d.x,-23.4,f.o.position.z+d.z); f.o.lookAt(tv); }
+    for(const s of this.sway) s.o.rotation.z=Math.sin(t*.8+s.ph)*.05;
+    for(const s of this.sheep){ s.o.position.x=s.cx+Math.sin(t*.15+s.ph)*28; s.o.position.z=s.cz+Math.cos(t*.12+s.ph)*18; s.o.rotation.y=Math.sin(t*.15+s.ph)>0?0:Math.PI; s.o.position.y=-26+Math.abs(Math.sin(t*2+s.ph))*2; }
+    for(const c of this.clouds) c.o.position.x=((c.o.userData.x0+t*c.v+900)%1800+1800)%1800-900;
+    for(const r of this.ripples){ const k=(t*.25+r.ph)%1; r.o.scale.set(r.R*(.3+k*.65),30,r.R*(.3+k*.65)); r.m.opacity=(1-k)*.8; }
     for(const q of this.qs){ q.material.opacity=.55+.35*Math.sin(t*2.4); q.position.y=150+Math.sin(t*1.2)*6; }
     this.renderer.render(this.scene,this.camera);
   }

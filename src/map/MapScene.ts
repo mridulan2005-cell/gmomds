@@ -25,6 +25,13 @@ export type Pick = { type: 'place'; pi: number } | { type: 'month'; mi: number }
 const DADI = '#2F5FD0', CHILD = '#E4572E', INK = '#3d2b22', DEPTH = 6, BT = 2.4, STEP = 900;
 const SLOTS = [[120, 110], [245, 100], [370, 110], [90, 205], [200, 212], [310, 205], [420, 200]];
 const MPOS = [[-380, -250], [330, -180], [-330, 210], [380, 280]];
+// A finished map comes alive: its four islands sit on one piece of land with a river, a pond, hills, trees and sheep.
+const LAND = [[-700, -380], [-560, -480], [-250, -440], [-120, -510], [120, -450], [300, -480], [520, -430], [720, -300], [700, -80], [780, 60], [720, 200], [760, 420], [570, 560], [300, 530], [100, 580], [-120, 500], [-360, 540], [-610, 480], [-740, 300], [-680, 120], [-780, -60], [-710, -200]];
+const RIV = [[-30, -620], [10, -330], [-40, -60], [30, 180], [-20, 420], [10, 660]];
+const MTN = [[655, -200, 80, 150], [-655, -10, 64, 120], [580, -370, 58, 105]];
+const POND = [575, 60, 52];
+function onLand(x: number, z: number) { let c = false; for (let i = 0, j = LAND.length - 1; i < LAND.length; j = i++) { const [xi, zi] = LAND[i], [xj, zj] = LAND[j]; if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) c = !c; } return c; }
+function riverX(z: number) { for (let i = 1; i < RIV.length; i++) if (z <= RIV[i][1]) { const [x0, z0] = RIV[i - 1], [x1, z1] = RIV[i]; return x0 + ((x1 - x0) * (z - z0)) / (z1 - z0); } return RIV[RIV.length - 1][0]; }
 export const SHAPES: Record<string, string> = {
   A: 'M20 120 Q40 60 120 70 Q200 80 250 50 Q330 20 400 60 Q470 90 460 160 Q450 230 370 225 Q290 220 230 245 Q140 270 70 235 Q10 200 20 120 Z',
   B: 'M30 170 Q20 110 70 90 Q90 50 120 80 Q170 60 230 70 L250 30 L280 72 Q340 66 380 90 Q420 40 450 90 Q475 150 450 210 Q420 255 330 250 L120 255 Q40 250 30 170 Z',
@@ -135,6 +142,13 @@ export class MapScene {
   private tweens: { m: THREE.Material[]; t0: number; dur: number }[] = [];
   private anims: { o: THREE.Object3D; i: number }[] = [];
   private qs: THREE.Sprite[] = [];
+  private flows: { o: THREE.Object3D; i: number; n: number; curve: THREE.CatmullRomCurve3 }[] = [];
+  private sway: { o: THREE.Object3D; ph: number }[] = [];
+  private sheep: { o: THREE.Object3D; cx: number; cz: number; ph: number }[] = [];
+  private clouds: { o: THREE.Object3D; x0: number; v: number }[] = [];
+  private ripples: { o: THREE.Object3D; m: THREE.MeshBasicMaterial; ph: number; R: number }[] = [];
+  private landGeo?: Record<string, any>;
+  private tv = new THREE.Vector3();
   private pickables: THREE.Object3D[] = [];
   private stackY = 0; private stackTarget = 0;
   private mode: string | null = null; private cfg: MapConfig | null = null; private lastKey = '';
@@ -189,6 +203,7 @@ export class MapScene {
   dispose() {
     cancelAnimationFrame(this.raf); this.ro.disconnect(); this.controls.dispose();
     this.clearOwned(); Object.values(this.mats).forEach(m => m.dispose()); this.grad.dispose();
+    if (this.landGeo) Object.values(this.landGeo).flat().forEach((g: any) => g?.dispose?.());
     this.renderer.dispose(); this.renderer.forceContextLoss(); this.renderer.domElement.remove();
   }
 
@@ -280,7 +295,7 @@ export class MapScene {
     });
     if (st === 'current' && o.q) { const q = this.sprite('?', { size: 150, color: '#8E7FD0' }); q.position.set(0, 150, 0); G.add(q); this.qs.push(q); }
     if (st === 'locked') { const l = this.lockSprite(o.lockK || 1.4); l.position.set(0, 70, 0); G.add(l); }
-    if (o.label) { const s = this.sprite(o.label, { size: 46, pill: true, bg: st === 'done' ? INK : '#FFF3D1', color: st === 'done' ? '#FFF3D1' : INK, k: 1.25 }); s.position.set(0, 215, -80); G.add(s); }
+    if (o.label) { const s = this.sprite(o.label, { size: 46, pill: true, bg: st === 'done' ? INK : '#FFF3D1', color: st === 'done' ? '#FFF3D1' : INK, k: 1.25 }); s.position.set(0, 215, -60); s.material.depthTest = false; s.renderOrder = 999; G.add(s); }
     return G;
   }
 
@@ -295,17 +310,83 @@ export class MapScene {
     if (p.theme === 'rooftop') { const m = this.toon('#C8573E'); [[-185, -60], [185, -50], [-150, 90], [170, 80]].forEach(([x, z]) => { const c = new THREE.Mesh(this.box ||= new THREE.BoxGeometry(16, 12, 16), m); c.scale.set(0.8, 2, 0.8); c.position.set(x, 15, z); G.add(c); }); }
   }
 
-  private month(places: PlaceCfg[], o: { pick?: boolean; labels?: boolean } = {}) {
+  private month(places: PlaceCfg[], o: { pick?: boolean; labels?: boolean; lite?: boolean } = {}) {
     const G = new THREE.Group();
     places.forEach((p, i) => {
       const lbl = p.status === 'done' ? p.name : p.status === 'current' ? 'This week · ' + Math.max(0, 7 - p.pairs.length) + ' to go' : null;
       const g = this.island(p, { label: o.labels !== false ? lbl : null, q: true, pick: o.pick && p.status !== 'locked' ? { type: 'place', pi: i } : null, lockK: 1.6 });
       g.position.set(MPOS[i][0], 0, MPOS[i][1]); G.add(g);
     });
-    const pts = [[-760, -420], ...MPOS, [760, 520]].map(([x, z]) => new THREE.Vector3(x, -10, z));
+    const alive = places.length > 0 && places.every(p => p.status === 'done');
+    if (alive) this.land(G, o.lite);
+    const pts = [[-760, -420], ...MPOS, [760, 520]].map(([x, z]) => new THREE.Vector3(x, alive ? -19 : -10, z));
     const curve = new THREE.CatmullRomCurve3(pts), n = Math.round(curve.getLength() / 34), dm = this.toon('#FFC93C');
-    curve.getSpacedPoints(n).forEach(pt => { const s = new THREE.Mesh(this.dot ||= new THREE.SphereGeometry(7, 10, 8), dm); s.position.copy(pt); G.add(s); });
-    return G;
+    curve.getSpacedPoints(n).forEach(pt => { if (alive && !onLand(pt.x, pt.z)) return; const s = new THREE.Mesh(this.dot ||= new THREE.SphereGeometry(7, 10, 8), dm); s.position.copy(pt); G.add(s); });
+    G.userData.alive = alive; return G;
+  }
+
+  private edge(pts: THREE.Vector3[], r: number) { const cp = new THREE.CurvePath<THREE.Vector3>(); for (let i = 0; i < pts.length; i++) cp.add(new THREE.LineCurve3(pts[i], pts[(i + 1) % pts.length])); return new THREE.TubeGeometry(cp as any, pts.length * 6, r, 5, false); }
+
+  /** The land a finished map stands on (lite: the small copy in the stack, without sea, clouds and compass). */
+  private land(G: THREE.Group, lite = false) {
+    const c = this.landGeo ||= (() => {
+      const sh = new THREE.Shape(); LAND.forEach(([x, z], i) => (i ? sh.lineTo(x, z) : sh.moveTo(x, z))); sh.closePath();
+      const land = new THREE.ExtrudeGeometry(sh, { depth: 44, bevelEnabled: true, bevelThickness: 4, bevelSize: 6, bevelSegments: 1 }); land.rotateX(Math.PI / 2); land.translate(0, -30, 0);
+      const river = new THREE.CatmullRomCurve3(RIV.map(([x, z]) => new THREE.Vector3(x, 0, z)));
+      const flow = new THREE.CapsuleGeometry(2.6, 16, 3, 6); flow.rotateX(Math.PI / 2);
+      const trunk = new THREE.CylinderGeometry(3.5, 4.5, 22, 6); trunk.translate(0, 11, 0);
+      const ring = new THREE.TorusGeometry(1, 0.05, 6, 48); ring.rotateX(Math.PI / 2);
+      return {
+        land, top: this.edge(LAND.map(([x, z]) => new THREE.Vector3(x, -25.4, z)), 2.4), bot: this.edge(LAND.map(([x, z]) => new THREE.Vector3(x, -78, z)), 2),
+        river, riverGeo: new THREE.TubeGeometry(river, 120, 26, 8, false), flow, trunk, ring,
+        crown: new THREE.IcosahedronGeometry(19, 0), pine: new THREE.ConeGeometry(16, 38, 7), puff: new THREE.IcosahedronGeometry(1, 1), disc: new THREE.CircleGeometry(1, 24),
+        mtn: MTN.map(([, , r, h]) => [new THREE.ConeGeometry(r, h, 7), new THREE.ConeGeometry(r * 0.4, h * 0.4, 7)]),
+      };
+    })();
+    G.add(new THREE.Mesh(c.land, [this.toon('#9BDB6A'), this.toon('#4E9F3D')]));
+    G.add(new THREE.Mesh(c.top, this.basic(INK)), new THREE.Mesh(c.bot, this.basic(INK)));
+    const rv = new THREE.Mesh(c.riverGeo, this.toon('#5AB0F0')); rv.scale.y = 0.06; rv.position.y = -25; G.add(rv);
+    for (let i = 0; i < 16; i++) { const f = new THREE.Mesh(c.flow, this.basic('#ffffff')); G.add(f); this.flows.push({ o: f, i, n: 16, curve: c.river }); }
+    const pond = new THREE.Mesh(c.disc, this.toon('#5AB0F0')); pond.rotation.x = -Math.PI / 2; pond.scale.setScalar(POND[2]); pond.position.set(POND[0], -24.6, POND[1]); G.add(pond);
+    const pr = new THREE.Mesh(c.ring, this.basic(INK)); pr.scale.set(POND[2], 30, POND[2]); pr.position.set(POND[0], -24.5, POND[1]); G.add(pr);
+    for (let i = 0; i < 2; i++) { const m = this.own(new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true })), r = new THREE.Mesh(c.ring, m); r.position.set(POND[0], -24.2, POND[1]); G.add(r); this.ripples.push({ o: r, m, ph: i * 0.5, R: POND[2] }); }
+    MTN.forEach(([x, z, , h], i) => {
+      const m = new THREE.Mesh(c.mtn[i][0], this.toon('#6FA8DC')); m.position.set(x, -26 + h / 2, z); G.add(m);
+      const snow = new THREE.Mesh(c.mtn[i][1], this.toon('#ffffff')); snow.position.set(x, -26 + h - h * 0.2 + 0.5, z); G.add(snow);
+    });
+    const R = rnd(11), clear = (x: number, z: number, pad: number) => onLand(x, z) && !MPOS.some(([cx, cz]) => Math.abs(x - cx) < 250 + pad && Math.abs(z - cz) < 150 + pad) && Math.abs(x - riverX(z)) > 50 && !MTN.some(([mx, mz, mr]) => Math.hypot(x - mx, z - mz) < mr + 24) && Math.hypot(x - POND[0], z - POND[1]) > POND[2] + 24;
+    const greens = ['#4FAE3E', '#6CC24A', '#3E9B48', '#86CF5A'], fall = ['#F29B38', '#F5C84C', '#E8743B'];
+    let placed = 0, tries = 0;
+    while (placed < (lite ? 30 : 48) && tries < 3000) {
+      tries++; const x = -780 + R() * 1560, z = -510 + R() * 1090; if (!clear(x, z, 12)) continue; placed++;
+      const tg = new THREE.Group(); tg.position.set(x, -26, z); tg.scale.setScalar(0.8 + R() * 0.5);
+      if ((x > 380 && z < -150) || R() < 0.25) { const a = new THREE.Mesh(c.pine, this.toon('#2F8F4E')); a.position.y = 22; const b = new THREE.Mesh(c.pine, this.toon('#3FA35A')); b.position.y = 40; b.scale.setScalar(0.75); tg.add(a, b); }
+      else { tg.add(new THREE.Mesh(c.trunk, this.toon('#8A5A3B'))); const pal = x < -420 ? fall : greens; const cr = new THREE.Mesh(c.crown, this.toon(pal[Math.floor(R() * pal.length)])); cr.position.y = 34; tg.add(cr); }
+      G.add(tg); this.sway.push({ o: tg, ph: R() * 6 });
+    }
+    let flock = 0; tries = 0;
+    while (flock < 5 && tries < 2000) {
+      tries++; const x = -700 + R() * 1400, z = -480 + R() * 1000; if (!clear(x, z, 30)) continue; flock++;
+      const s = new THREE.Group(), body = new THREE.Mesh(c.puff, this.toon('#ffffff')), hd = new THREE.Mesh(c.puff, this.toon(INK));
+      body.scale.set(13, 10, 10); body.position.y = 12; hd.scale.setScalar(5.5); hd.position.set(13, 15, 0); s.add(body, hd); s.position.set(x, -26, z); G.add(s);
+      this.sheep.push({ o: s, cx: x, cz: z, ph: R() * 6 });
+    }
+    if (lite) return;
+    const sea = new THREE.Mesh(c.disc, this.toon('#7FD0C9')); sea.rotation.x = -Math.PI / 2; sea.scale.setScalar(3200); sea.position.y = -82; G.add(sea);
+    for (let i = 0; i < 4; i++) {
+      const cl = new THREE.Group(); [[0, 0, 30], [30, 6, 24], [-28, 2, 22], [10, 16, 22]].forEach(([dx, dy, r]) => { const p = new THREE.Mesh(c.puff, this.toon('#ffffff')); p.scale.setScalar(r); p.position.set(dx, dy, 0); cl.add(p); });
+      const x0 = -900 + i * 470; cl.position.set(x0, 250 + (i % 2) * 50, -360 + i * 240); G.add(cl); this.clouds.push({ o: cl, x0, v: 12 + i * 3 });
+    }
+    const cp = this.compass(); cp.position.set(640, 0, 580); G.add(cp);
+  }
+
+  private compass() {
+    const cv = document.createElement('canvas'); cv.width = cv.height = 200; const x = cv.getContext('2d')!;
+    x.fillStyle = '#FFC93C'; x.strokeStyle = INK; x.lineWidth = 4;
+    [[0, -1], [1, 0], [0, 1], [-1, 0]].forEach(([dx, dy]) => { x.beginPath(); x.moveTo(100 + dx * 80, 100 + dy * 80); x.lineTo(100 + dy * 22, 100 - dx * 22); x.lineTo(100 - dy * 22, 100 + dx * 22); x.closePath(); x.fill(); x.stroke(); });
+    x.fillStyle = INK; x.font = '900 34px Urbanist, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('N', 100, 18); x.fillText('S', 100, 188);
+    const tex = this.own(new THREE.CanvasTexture(cv)); tex.colorSpace = THREE.SRGBColorSpace;
+    const s = new THREE.Sprite(this.own(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }))); s.scale.set(170, 170, 1); return s;
   }
 
   private board(m: MonthCfg, i: number) {
@@ -315,7 +396,7 @@ export class MapScene {
     const eg = this.own(new THREE.EdgesGeometry(this.slabGeo));
     if (m.current) { const e = new THREE.LineSegments(eg, this.own(new THREE.LineDashedMaterial({ color: INK, dashSize: 24, gapSize: 18 }))); e.computeLineDistances(); e.position.y = -14; B.add(e); }
     else { const e = new THREE.LineSegments(eg, this.own(new THREE.LineBasicMaterial({ color: INK }))); e.position.y = -14; B.add(e); }
-    const mg = this.month(m.places, { labels: false }); mg.scale.setScalar(0.85); mg.position.y = 34; B.add(mg);
+    const mg = this.month(m.places, { labels: false, lite: true }); mg.scale.setScalar(0.85); mg.position.y = mg.userData.alive ? 72 : 34; B.add(mg);
     if (m.current) mg.traverse(o => { const mesh = o as THREE.Mesh; if (mesh.isMesh) { const fix = (x: THREE.Material) => { const c = this.own(x.clone()); c.transparent = true; c.opacity = Math.min(x.opacity, 0.5); c.depthWrite = false; return c; }; mesh.material = Array.isArray(mesh.material) ? mesh.material.map(fix) : fix(mesh.material); } });
     const s = this.sprite(m.name, { size: 52, pill: true, bg: m.current ? '#FFF3D1' : INK, color: m.current ? INK : '#FFF3D1', k: 1.3 }); s.position.set(-990, 40, 0); B.add(s);
     this.pickables.push(B); return B;
@@ -324,6 +405,7 @@ export class MapScene {
   private build(cfg: MapConfig) {
     this.cfg = cfg; this.root.clear(); this.clearOwned();
     this.items = []; this.tweens = []; this.anims = []; this.qs = []; this.pickables = [];
+    this.flows = []; this.sway = []; this.sheep = []; this.clouds = []; this.ripples = [];
     if (cfg.mode === 'place') this.root.add(this.island(cfg.place, { fresh: cfg.fresh, fade: cfg.fade, q: true, S: 76 }));
     else if (cfg.mode === 'month') this.root.add(this.month(cfg.places, { pick: true }));
     else cfg.months.forEach((m, i) => { const b = this.board(m, i); b.position.y = -i * STEP; this.root.add(b); });
@@ -410,6 +492,12 @@ export class MapScene {
     for (const tw of this.tweens) { const k = Math.min(1, (n - tw.t0) / tw.dur); tw.m.forEach(m => { m.opacity = k; if (k >= 1) { m.transparent = false; m.needsUpdate = true; } }); }
     this.tweens = this.tweens.filter(tw => n - tw.t0 < tw.dur);
     for (const a of this.anims) a.o.position.x = this.reducedMotion ? 0 : ((t * 16 + a.i * 20) % 40) - 20;
+    const A = this.reducedMotion ? 0.25 : 1, tv = this.tv;
+    for (const f of this.flows) { const u = (t * 0.02 * A + f.i / f.n) % 1, p = f.curve.getPointAt(u), d = f.curve.getTangentAt(u); f.o.position.set(p.x + Math.sin(f.i * 2.3) * 9, -23.4, p.z); tv.set(f.o.position.x + d.x, -23.4, f.o.position.z + d.z); f.o.lookAt(tv); }
+    for (const s of this.sway) s.o.rotation.z = Math.sin(t * 0.8 + s.ph) * 0.05 * A;
+    for (const s of this.sheep) { const k = t * A; s.o.position.set(s.cx + Math.sin(k * 0.15 + s.ph) * 28, -26 + Math.abs(Math.sin(k * 2 + s.ph)) * 2, s.cz + Math.cos(k * 0.12 + s.ph) * 18); s.o.rotation.y = Math.sin(k * 0.15 + s.ph) > 0 ? 0 : Math.PI; }
+    for (const c of this.clouds) c.o.position.x = (((c.x0 + t * c.v * A + 900) % 1800) + 1800) % 1800 - 900;
+    for (const r of this.ripples) { const k = (t * 0.25 * A + r.ph) % 1; r.o.scale.set(r.R * (0.3 + k * 0.65), 30, r.R * (0.3 + k * 0.65)); r.m.opacity = (1 - k) * 0.8; }
     for (const q of this.qs) { q.material.opacity = 0.55 + 0.35 * Math.sin(t * 2.4); q.position.y = 150 + Math.sin(t * 1.2) * 6; }
     this.renderer.render(this.scene, this.camera);
   };

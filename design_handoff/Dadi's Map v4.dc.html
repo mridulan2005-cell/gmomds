@@ -291,7 +291,7 @@ const RIVER=[['Draw something that moves','waves','fish'],['Draw something that 
 const POOL=[['Draw your favourite fruit','mango','mango'],['Draw something round','sun','drum'],['Draw a friend with four legs','cat','cat'],['Draw something that lights up','diya','moon'],['Draw a song you know','note','bell'],['Draw where you sleep','home','moon'],['Draw something from the water','fish','boat'],['Draw something tall','tree','kite'],['Draw something you drink','chai','chai'],['Draw something from a festival','diya','kite'],['Draw something that waves','waves','flower'],['Draw a morning visitor','bird','cat']];
 const TILES=[['Cats','cat'],['Birds','bird'],['Mangoes','mango'],['Chai','chai'],['Diwali','diya'],['Kites','kite'],['Songs','note'],['Rivers','waves'],['Trees','tree'],['Moon nights','moon'],['Fish','fish'],['Home','home']];
 const BOOKPOS=[{x:90,y:180,r:-1.5},{x:480,y:220,r:1},{x:870,y:185,r:-.5}];
-const JUMPS=[['Onboarding','onboard'],['Today','home'],['Scan · Dadi','scan1'],['Scan · grandchild','scan2'],["Today's sketches",'sketches'],['New drawings on the map','building'],['Reveal','reveal'],['All maps','stack'],['Inside a map','interior'],['A finished place','finished'],['Scrapbook','book']];
+const JUMPS=[['Onboarding','onboard'],['Today','home'],['Scan · Dadi','scan1'],['Scan · grandchild','scan2'],["Today's sketches",'sketches'],['New drawings on the map','building'],['Reveal','reveal'],['All maps','stack'],['Inside a map','interior'],['A finished map','finishedMap'],['A finished place','finished'],['Scrapbook','book']];
 const pastPairs=off=>[0,1,2,3,4,5,6].map(k=>POOL[(off+k)%POOL.length]);
 const icon=(k,color)=>({fd:(ICON[k].f||[]).join(' '),sd:(ICON[k].s||[]).join(' '),fc:NC[k],color});
 
@@ -367,10 +367,11 @@ class Component extends DCLogic {
       if(['sketches','reveal'].includes(id)){ex.done=true;ex.revealed=false;}
       if(id==='building'){scr='place';ex.done=true;ex.revealed=false;ex.pl={mi:0,pi:1};}
       if(id==='interior')ex.mi=0;
+      if(id==='finishedMap'){scr='interior';ex.mi=1;}
       if(id==='finished'){scr='place';ex.pl={mi:1,pi:0};}
       if(id==='book')ex.page=null;
       this.go(scr,ex);if(id==='building')this.setState({fresh:true});};
-    const jumpActive=id=>id===screen||(id==='building'&&isPlace&&s.fresh)||(id==='finished'&&isPlace&&!s.fresh&&s.pl.mi===1);
+    const jumpActive=id=>(id==='interior'?screen==='interior'&&s.mi===0:id==='finishedMap'?screen==='interior'&&s.mi>0:id===screen)||(id==='building'&&isPlace&&s.fresh)||(id==='finished'&&isPlace&&!s.fresh&&s.pl.mi===1);
     const sc=s.scale;
     return {
       scale:sc,devW:1352*sc,devH:880*sc,screenLabel:screen,childName:child,
