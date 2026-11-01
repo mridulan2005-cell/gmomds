@@ -86,12 +86,15 @@ export function Scan({ who, go }: { who: 'dadi' | 'child'; go: Go }) {
       const rec = await recognise(crop, prompt, who, r.vector);
       await new Promise(res => setTimeout(res, Math.max(0, 2600 - (performance.now() - started))));
       const st = getState(), id = uid();
+      const { art, ...paths } = r.vector; // the drawing's own image is stored as a blob, not in the state
+      const artBlob = art ? await toBlob(toCanvas(art), 'image/jpeg', 0.92).catch(() => null) : null;
       const d: Drawing = {
-        id, personId: who, promptId: st.prompt?.id || '', createdAt: Date.now(), paths: r.vector,
+        id, personId: who, promptId: st.prompt?.id || '', createdAt: Date.now(), paths, hasArt: !!artBlob,
         kind: rec.kind, label: rec.label, motion: rec.motion, place: rec.place, fillColor: fillFor(rec.kind, who === 'dadi' ? 0 : 1),
         confidence: rec.confidence, alternatives: rec.alternatives || [], source: rec.source,
       };
       await saveScan(id, jpeg);
+      if (artBlob) await saveScan(id, artBlob, 'art');
       addDrawing(d); setDrawingId(id); setPhase('done'); stopCamera();
     } catch (e) { console.error(e); setErr('failed'); setPhase('error'); }
   };

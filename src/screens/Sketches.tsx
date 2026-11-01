@@ -1,5 +1,5 @@
 import type { Go } from '../App';
-import { Arrow, DrawingSvg, Perforation } from '../components';
+import { Arrow, DrawingArt, Perforation } from '../components';
 import { DADI, CHILD } from '../lib/content';
 import { useApp } from '../lib/store';
 
@@ -22,7 +22,7 @@ export function Sketches({ go }: { go: Go }) {
         {cards.map(c => (
           <div key={c.d.id} className="stamp" style={{ rotate: c.r + 'deg', animationDelay: c.delay }}>
             <Perforation color="#E9A3C0" />
-            <div className="stamp-inner" style={{ background: c.tint }}><DrawingSvg d={c.d} /></div>
+            <div className="stamp-inner" style={{ background: c.tint }}><DrawingArt d={c.d} /></div>
             <div className="stamp-owner" style={{ color: c.color }}><span>{c.owner}</span><small>{c.d.label}</small></div>
           </div>
         ))}

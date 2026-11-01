@@ -77,6 +77,19 @@ describe('scan pipeline', () => {
     expect(R).toBeGreaterThan(B + 60); expect(G).toBeGreaterThan(B + 30);
   });
 
+  it('keeps the drawing itself: an exact cut-out and its image', () => {
+    const { img } = photo();
+    const v = processScan(img).vector!;
+    expect(v.sil!.outer.length).toBeGreaterThanOrEqual(1); // body with legs, beak and eye in one piece (eye may be separate)
+    expect(v.art!.width).toBeGreaterThan(50);
+    const [x0, y0, x1, y1] = v.artBox!;
+    expect(x1 - x0).toBeGreaterThan(40); expect(y1).toBeLessThanOrEqual(61); expect(y0).toBeGreaterThanOrEqual(0);
+    // paper is white in the image, ink stays dark
+    const d = v.art!.data; let light = 0, dark = 0;
+    for (let i = 0; i < d.length; i += 4) { const l = (d[i] + d[i + 1] + d[i + 2]) / 3; if (l > 240) light++; else if (l < 90) dark++; }
+    expect(light).toBeGreaterThan(dark); expect(dark).toBeGreaterThan(20);
+  });
+
   it('says "empty" for a blank page', () => {
     const img = canvas(640, 480, [92, 70, 55]);
     fillPoly(img, [[150, 60], [500, 80], [520, 430], [130, 410]], [246, 244, 238]);

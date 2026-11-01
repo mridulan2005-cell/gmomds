@@ -32,11 +32,12 @@ Other commands: `npm test` (scan pipeline tests), `npm run build`, `npm run prev
    - **The prompt's words** are the last resort.
    - `src/lib/motionRules.ts` gives any word a motion, so typed corrections come alive too.
    - "Not quite?" lets the family pick another guess or type what it is.
-5. **Bring to life** (`src/map/MapScene.ts`, a port of the prototype's `map3d.js`):
-   - Regions are extruded into toon-shaded volumes, and lines become wobbly "boiling" pencil tubes in the owner's ink colour.
+5. **Bring to life** (`src/map/MapScene.ts`, a port of the prototype's `map3d.js`): **the drawing is not redrawn.**
+   - The 3D object is the drawing's own outline, cut out and given depth like a puffy sticker.
+   - The drawing's own image (paper made white, every line and crayon colour kept) is printed on its front and back.
+   - It then moves according to what it is: things fly, swim, sway, float, spin, bounce, swing, flicker, rock, flow, walk or hop. Sky things hover high and water things sit low.
    - The newest pair rises up out of the island.
-   - Motion comes from what the drawing is: things fly, swim, sway, float, spin, bounce, swing, flicker, rock, flow, walk or hop. Sky things hover high and water things sit low.
-   - Geometry is cached per drawing.
+   - Sample drawings, which have no scan, use the prototype's toon style with "boiling" pencil lines.
 
 ### Recognising drawings with no internet connection
 

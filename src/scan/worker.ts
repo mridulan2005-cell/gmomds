@@ -12,6 +12,7 @@ self.onmessage = (e: MessageEvent<Msg>) => {
     const transfer: Transferable[] = [];
     if (r.crop) transfer.push(r.crop.data.buffer);
     if (r.ink) transfer.push(r.ink.data.buffer);
+    if (r.vector?.art) transfer.push(r.vector.art.data.buffer);
     (self as unknown as Worker).postMessage({ id, result: r }, transfer);
   } catch (err) {
     (self as unknown as Worker).postMessage({ id, error: String(err) });

@@ -9,7 +9,11 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js';
 import type { Motion, Spot } from '../lib/types';
 
-export interface DrawCfg { id: string; f: string[]; s: string[]; fc?: (string | null)[]; fill: string; owner: 'd' | 'a'; motion: Motion; place: Spot }
+export interface DrawCfg {
+  id: string; f: string[]; s: string[]; fc?: (string | null)[]; fill: string; owner: 'd' | 'a'; motion: Motion; place: Spot;
+  /** exact cut-out of the drawing + where its image sits; when present the drawing is shown exactly as drawn */
+  sil?: { outer: string[]; holes: string[] }; artBox?: [number, number, number, number]; art?: boolean;
+}
 export interface PlaceCfg { name: string; shape: string; color: string; theme: string; status: 'locked' | 'current' | 'done'; pairs: [DrawCfg, DrawCfg][] }
 export interface MonthCfg { name: string; current: boolean; places: PlaceCfg[] }
 export type MapConfig =
@@ -50,6 +54,47 @@ function tube(pts: THREE.Vector2[], z: number, closed: boolean, seed: number, ra
   return new THREE.TubeGeometry(curve, Math.min(220, Math.max(10, Math.round(len * 1.3))), rad, 5, closed && v.length > 2);
 }
 function inPoly(p: THREE.Vector2, poly: THREE.Vector2[]) { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const a = poly[i], b = poly[j]; if ((a.y > p.y) !== (b.y > p.y) && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) c = !c; } return c; }
+
+// ---- the drawing exactly as drawn: its own outline given depth, its own image printed on front and back ----
+const CUT_CACHE = new Map<string, THREE.ExtrudeGeometry | null>();
+const ART_MATS = new Map<string, THREE.MeshBasicMaterial>();
+const ringPts = (d: string) => { const n = (d.match(/-?\d+(\.\d+)?/g) || []).map(Number), out: THREE.Vector2[] = []; for (let i = 0; i + 1 < n.length; i += 2) out.push(new THREE.Vector2(n[i], n[i + 1])); return out; };
+
+export function cutoutGeo(d: DrawCfg): THREE.ExtrudeGeometry | null {
+  if (CUT_CACHE.has(d.id)) return CUT_CACHE.get(d.id)!;
+  let geo: THREE.ExtrudeGeometry | null = null;
+  if (d.sil && d.artBox && d.sil.outer.length) {
+    const shapes = d.sil.outer.map(o => new THREE.Shape(ringPts(o)));
+    for (const h of d.sil.holes) {
+      const pts = ringPts(h); if (pts.length < 3) continue;
+      const owner = shapes.find(sh => inPoly(pts[0], sh.getPoints()));
+      if (owner) owner.holes.push(new THREE.Path(pts));
+    }
+    try {
+      geo = new THREE.ExtrudeGeometry(shapes, { depth: DEPTH, bevelEnabled: true, bevelThickness: 1.4, bevelSize: 0.7, bevelSegments: 3, curveSegments: 1 });
+      // map the drawing's image onto the shape: the caps show exactly what was drawn
+      const [x0, y0, x1, y1] = d.artBox, pos = geo.attributes.position, uv = geo.attributes.uv as THREE.BufferAttribute;
+      for (let i = 0; i < pos.count; i++) uv.setXY(i, (pos.getX(i) - x0) / (x1 - x0), 1 - (pos.getY(i) - y0) / (y1 - y0));
+      uv.needsUpdate = true;
+    } catch { geo = null; }
+  }
+  CUT_CACHE.set(d.id, geo); return geo;
+}
+
+function artMaterial(d: DrawCfg, loader?: (id: string) => Promise<string | null>) {
+  let m = ART_MATS.get(d.id);
+  if (m) return m;
+  m = new THREE.MeshBasicMaterial({ color: '#FFFBF0' }); ART_MATS.set(d.id, m);
+  const mat = m;
+  loader?.(d.id).then(url => {
+    if (!url) return;
+    new THREE.TextureLoader().load(url, tex => {
+      tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+      mat.map = tex; mat.color.set('#ffffff'); mat.needsUpdate = true;
+    });
+  });
+  return m;
+}
 
 export function drawingGeo(d: DrawCfg): DrawGeo {
   const hit = GEO_CACHE.get(d.id); if (hit) return hit;
@@ -95,6 +140,8 @@ export class MapScene {
   private raf = 0; private clock = new THREE.Clock(); private ro: ResizeObserver;
   private disc?: THREE.CircleGeometry; private dot?: THREE.SphereGeometry; private cone?: THREE.ConeGeometry; private box?: THREE.BoxGeometry; private slabGeo?: THREE.BoxGeometry;
   onPick: (p: Pick) => void = () => {};
+  /** where to find each drawing's own image (an object URL from IndexedDB) */
+  artLoader?: (id: string) => Promise<string | null>;
   reducedMotion = false;
 
   constructor(el: HTMLElement) {
@@ -143,11 +190,16 @@ export class MapScene {
   private clearOwned() { this.owned.forEach(x => x.dispose()); this.owned = []; }
 
   private drawing(d: DrawCfg, S: number, riseAt: number) {
-    const g = drawingGeo(d), base = new THREE.Group(), mover = new THREE.Group(), sc = new THREE.Group(), inner = new THREE.Group();
+    const g = d.art && d.sil ? { fills: [], a: [], b: [] } as DrawGeo : drawingGeo(d), base = new THREE.Group(), mover = new THREE.Group(), sc = new THREE.Group(), inner = new THREE.Group();
     base.add(mover); mover.add(sc); sc.add(inner); inner.rotation.x = Math.PI; inner.position.set(-32, 60, DEPTH / 2);
-    g.fills.forEach(({ geo, i }) => inner.add(new THREE.Mesh(geo, this.toon((d.fc && d.fc[i]) || d.fill || '#FFC93C'))));
+    const cut = d.art ? cutoutGeo(d) : null;
+    if (cut) {
+      // exactly as drawn: front and back show the drawing, the edge is a soft paper-coloured rim
+      const rim = this.toon(shade((d.fc && d.fc.find(Boolean)) || '#F3EAD6', 0.9));
+      inner.add(new THREE.Mesh(cut, [artMaterial(d, this.artLoader), rim]));
+    } else g.fills.forEach(({ geo, i }) => inner.add(new THREE.Mesh(geo, this.toon((d.fc && d.fc[i]) || d.fill || '#FFC93C'))));
     const lm = this.basic(d.owner === 'd' ? DADI : CHILD), oa = new THREE.Group(), ob = new THREE.Group();
-    g.a.forEach(x => oa.add(new THREE.Mesh(x, lm))); g.b.forEach(x => ob.add(new THREE.Mesh(x, lm))); ob.visible = false; inner.add(oa, ob);
+    if (!cut) { g.a.forEach(x => oa.add(new THREE.Mesh(x, lm))); g.b.forEach(x => ob.add(new THREE.Mesh(x, lm))); } ob.visible = false; inner.add(oa, ob);
     sc.scale.setScalar(riseAt ? 0.0001 : S / 64);
     const sh = new THREE.Mesh(this.disc ||= new THREE.CircleGeometry(1, 24), this.basic(INK, 0.13)); sh.rotation.x = -Math.PI / 2; sh.scale.setScalar(S * 0.3); sh.position.y = 0.8; base.add(sh);
     this.items.push({ d, base, mover, sc, inner, oa, ob, sh, S, ph: (hashSeed(d.id) % 628) / 100, rise: riseAt });

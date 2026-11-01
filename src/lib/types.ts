@@ -2,7 +2,13 @@ export type PersonId = 'dadi' | 'child';
 export type Motion = 'fly' | 'swim' | 'sway' | 'float' | 'spin' | 'bounce' | 'swing' | 'flicker' | 'breathe' | 'rock' | 'flow' | 'walk' | 'hop' | 'none';
 export type Spot = 'sky' | 'ground' | 'water';
 
-export interface Paths { f: string[]; s: string[]; fc?: (string | null)[] }
+export interface Paths {
+  f: string[]; s: string[]; fc?: (string | null)[];
+  /** cut-out of the whole drawing, extruded as-is into 3D */
+  sil?: { outer: string[]; holes: string[] };
+  /** where the drawing's own image (stored as 'art:<id>') sits in the 64 box */
+  artBox?: [number, number, number, number];
+}
 
 export interface Guess { kind: string; label: string; motion: Motion; place: Spot }
 export interface Recognition extends Guess { confidence: number; alternatives: Guess[]; source: 'claude' | 'local' }
@@ -21,6 +27,7 @@ export interface Drawing {
   confidence: number;
   alternatives: Guess[];
   source: 'claude' | 'local' | 'sample';
+  hasArt?: boolean;
 }
 
 export interface Pair { promptId: string; prompt: string; dadi: string; child: string; slot: number }

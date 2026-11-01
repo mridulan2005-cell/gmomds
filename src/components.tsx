@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { MapScene, type MapConfig, type Pick } from './map/MapScene';
-import { scanUrl } from './lib/store';
+import { artUrl, scanUrl } from './lib/store';
 import type { Drawing } from './lib/types';
 import { inkOf } from './lib/content';
 
@@ -46,6 +46,14 @@ export function DrawingSvg({ d, size = 190 }: { d: Drawing; size?: number }) {
   );
 }
 
+/** The drawing exactly as it was drawn (paper made white); falls back to the traced lines for sample data. */
+export function DrawingArt({ d, size = 190 }: { d: Drawing; size?: number }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => { let on = true; if (d.hasArt) artUrl(d.id).then(u => on && setUrl(u)); return () => { on = false; }; }, [d.id, d.hasArt]);
+  if (!d.hasArt) return <DrawingSvg d={d} size={size} />;
+  return url ? <img src={url} alt={d.label} style={{ maxWidth: size, maxHeight: size, objectFit: 'contain', background: '#fff', borderRadius: 6, boxShadow: '0 3px 10px rgba(61,43,34,.12)' }} /> : <div style={{ width: size, height: size }} />;
+}
+
 /** The real paper scan for the scrapbook; falls back to the traced drawing (sample data has no scan). */
 export function ScanPhoto({ d, rot }: { d: Drawing; rot: number }) {
   const [url, setUrl] = useState<string | null>(null);
@@ -63,7 +71,7 @@ export function Map3D({ config, onPick, reducedMotion }: { config: MapConfig; on
   pickRef.current = onPick;
   useEffect(() => {
     try {
-      const s = new MapScene(host.current!); scene.current = s; s.onPick = p => pickRef.current?.(p);
+      const s = new MapScene(host.current!); scene.current = s; s.artLoader = artUrl; s.onPick = p => pickRef.current?.(p);
     } catch (e) { console.error(e); setFailed(true); }
     return () => { scene.current?.dispose(); scene.current = null; };
   }, []);

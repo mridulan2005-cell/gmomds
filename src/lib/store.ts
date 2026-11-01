@@ -81,12 +81,16 @@ export async function ensurePrompt(force = false) {
 }
 
 // ---------- scanning ----------
-export async function saveScan(id: string, jpeg: Blob) { try { await set('scan:' + id, jpeg); } catch (e) { console.warn('scan save failed', e); } }
+export async function saveScan(id: string, jpeg: Blob, kind: 'scan' | 'art' = 'scan') { try { await set(kind + ':' + id, jpeg); } catch (e) { console.warn('scan save failed', e); } }
 const urlCache = new Map<string, string>();
-export async function scanUrl(id: string): Promise<string | null> {
-  if (urlCache.has(id)) return urlCache.get(id)!;
-  try { const b = await get<Blob>('scan:' + id); if (!b) return null; const u = URL.createObjectURL(b); urlCache.set(id, u); return u; } catch { return null; }
+async function blobUrl(key: string): Promise<string | null> {
+  if (urlCache.has(key)) return urlCache.get(key)!;
+  try { const b = await get<Blob>(key); if (!b) return null; const u = URL.createObjectURL(b); urlCache.set(key, u); return u; } catch { return null; }
 }
+/** The photo of the paper (scrapbook). */
+export const scanUrl = (id: string) => blobUrl('scan:' + id);
+/** The drawing itself, white-balanced, printed on its 3D cut-out. */
+export const artUrl = (id: string) => blobUrl('art:' + id);
 
 export function addDrawing(d: Drawing) {
   update(s => {

@@ -6,7 +6,13 @@ export interface Img { width: number; height: number; data: Uint8ClampedArray }
 export type Pt = [number, number];
 export type Quad = [Pt, Pt, Pt, Pt]; // tl, tr, br, bl
 
-export interface Vector { f: string[]; s: string[]; fc: (string | null)[] }
+export interface Vector {
+  f: string[]; s: string[]; fc: (string | null)[];
+  /** Exact cut-out of the whole drawing (outer outlines and holes), in the 64 box: what gets extruded into 3D. */
+  sil?: { outer: string[]; holes: string[] };
+  /** The drawing itself, white-balanced, covering artBox [x0, y0, x1, y1] of the 64 box: printed on the 3D cut-out. */
+  art?: Img; artBox?: [number, number, number, number];
+}
 export type ScanError = 'empty' | 'blurry' | 'no-paper';
 export interface ScanResult {
   ok: boolean;
@@ -509,7 +515,42 @@ export function vectorise(mask: Uint8Array, mw: number, mh: number, colour?: Img
     r /= n; g /= n; b /= n; const mx = Math.max(r, g, b), boost = Math.min(1.5, 235 / Math.max(1, mx));
     return hex(r * boost, g * boost, b * boost);
   });
-  return { f, s: sOut, fc };
+  const out: Vector = { f, s: sOut, fc };
+  if (colour) Object.assign(out, cutout(M, solid, w, h, colour, k, ox, oy));
+  return out;
+}
+
+/**
+ * The drawing as a cut-out: the silhouette of everything drawn (regions plus lines), and the real photo of it.
+ * The 3D object is this silhouette given depth, with the drawing printed on it, so nothing is redrawn or changed.
+ */
+function cutout(M: Uint8Array, solid: Uint8Array, w: number, h: number, colour: Img, k: number, ox: number, oy: number) {
+  let S: Uint8Array = dilate(M, w, h, 1);
+  for (let i = 0; i < S.length; i++) if (solid[i]) S[i] = 1;
+  S = despeckle(S, w, h, 4);
+  const T = (p: Pt): string => (p[0] * k + ox).toFixed(2) + ' ' + (p[1] * k + oy).toFixed(2);
+  const ring = (c: Pt[]) => { const q = capPoints(rdpClosed(chaikin(c, true, 1), 0.45), 220); return q.length >= 3 ? 'M' + q.map(T).join('L') + 'Z' : null; };
+  const fg = label(S, w, h, true), outer: string[] = [];
+  for (let id = 1; id < fg.sizes.length; id++) { const r = ring(traceContour(fg.lab, w, h, id)); if (r) outer.push(r); }
+  const bgl = label(S.map(v => (v ? 0 : 1)) as Uint8Array, w, h, false), edge = new Set<number>(), holes: string[] = [];
+  for (let x = 0; x < w; x++) { edge.add(bgl.lab[x]); edge.add(bgl.lab[(h - 1) * w + x]); }
+  for (let y = 0; y < h; y++) { edge.add(bgl.lab[y * w]); edge.add(bgl.lab[y * w + w - 1]); }
+  for (let id = 1; id < bgl.sizes.length; id++) { if (edge.has(id) || bgl.sizes[id] < 6) continue; const r = ring(traceContour(bgl.lab, w, h, id)); if (r) holes.push(r); }
+
+  // the photo of the drawing over the silhouette's box, with the paper made white (crayon and ink keep their colours)
+  const bb = bbox(S, w, h) || { x0: 0, y0: 0, x1: w - 1, y1: h - 1 };
+  const bx0 = Math.max(0, bb.x0 - 1), by0 = Math.max(0, bb.y0 - 1), bx1 = Math.min(w - 1, bb.x1 + 1), by1 = Math.min(h - 1, bb.y1 + 1);
+  const cs = colour.width / w, regW = (bx1 - bx0 + 1) * cs, regH = (by1 - by0 + 1) * cs, sc = Math.min(1, 512 / Math.max(regW, regH));
+  const AW = Math.max(8, Math.round(regW * sc)), AH = Math.max(8, Math.round(regH * sc)), art = new Uint8ClampedArray(AW * AH * 4);
+  const white = [0, 1, 2].map(c => { const v: number[] = []; for (let j = c; j < colour.data.length; j += 4 * 7) v.push(colour.data[j]); v.sort((a, b) => a - b); return Math.max(60, v[Math.floor(v.length * 0.95)] || 255); });
+  for (let y = 0; y < AH; y++) for (let x = 0; x < AW; x++) {
+    const cx = Math.min(colour.width - 1, Math.floor(bx0 * cs + ((x + 0.5) / AW) * regW)), cy = Math.min(colour.height - 1, Math.floor(by0 * cs + ((y + 0.5) / AH) * regH));
+    const j = (cy * colour.width + cx) * 4, o = (y * AW + x) * 4;
+    for (let c = 0; c < 3; c++) art[o + c] = Math.min(255, (colour.data[j + c] * 255) / white[c]);
+    art[o + 3] = 255;
+  }
+  const artBox: [number, number, number, number] = [bx0 * k + ox, by0 * k + oy, (bx1 + 1) * k + ox, (by1 + 1) * k + oy];
+  return { sil: { outer, holes }, art: { width: AW, height: AH, data: art } as Img, artBox };
 }
 
 // ---------- the whole thing ----------
