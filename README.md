@@ -1,0 +1,59 @@
+# Dadi's Map
+
+A calm tablet app shared by a grandmother (Dadi) and her grandchild. Each day there is one drawing prompt. Each of them draws an answer on paper and scans it. The app traces their own lines, works out what was drawn, and brings it to life as a small hand-drawn 3D object on a floating island. Seven pairs finish a place and reveal its hidden theme, four places make a monthly map, and every scan is kept in a scrapbook.
+
+Built from the design handoff in [`design_handoff/`](design_handoff/README.md): Vite, React, TypeScript, three.js and IndexedDB. It is made for iPad, in landscape or portrait, and can be added to the Home Screen to run full-screen.
+
+## Run it
+
+```bash
+npm install
+cp .env.example .env    # then add ANTHROPIC_API_KEY
+npm run dev             # https://<your-computer-ip>:5173
+```
+
+On the iPad, open the **Network** URL that Vite prints. The page is HTTPS, which Safari needs before it allows the camera. The certificate is self-signed, so tap through the warning once. For a full-screen app, use Share → Add to Home Screen.
+
+Other commands: `npm test` (scan pipeline tests), `npm run build`, `npm run preview` (the built app over HTTPS, with the API), `npm start` (plain HTTP production server; put it behind HTTPS), and `npm run fetch-model` (see below).
+
+## How a drawing comes to life
+
+1. **Capture** (`src/screens/Scan.tsx`): this is the rear camera inside the tray viewfinder. When a sheet is found and held still for about 1 second, it is captured automatically. "It's on the tray" captures by hand, and "Use a photo" takes a photo or picks one from the library. Dadi scans first, then the grandchild; the order of scanning decides whose drawing is whose.
+2. **Clean-up** (`src/scan/pipeline.ts`, in a Web Worker):
+   - Finds the paper as the largest bright four-sided region and corrects the perspective.
+   - Estimates the paper's brightness, so shadows don't count as ink.
+   - Picks out pencil and pen lines and crayon colour, then removes specks and crops.
+   - Says "Try again" if the page is empty or the photo is blurry.
+   - The colour crop is kept as the real scan for the scrapbook.
+3. **Vectorise**: each area enclosed by a line, and each coloured-in area, becomes a separate puffy region (`f`). Separate regions keep a tail or a beak as its own piece. Lines are thinned to their centre (Zhang–Suen) and become pencil strokes (`s`). Eyes and dots drawn on top of colour are kept. Everything is smoothed, simplified and fitted into the 64×64 box. Each region's crayon colour is sampled from the photo. Nothing is redrawn: the 3D object is built from that person's own lines.
+4. **Recognise: works for any drawing** (`src/scan/scanner.ts`):
+   - **Claude vision** (`server/api.mjs`) gets the scan, the day's prompt and who drew it. It is told these are rough drawings by a grandmother and a small child, and that the thing can be anything at all. It answers with `{kind, label, confidence, motion, place, alternatives}`.
+   - **DoodleNet, on the tablet** (`src/scan/doodle.ts`), is used when Claude can't be reached. It is a TensorFlow.js model trained on Google's Quick, Draw! dataset and recognises 345 everyday things. The day's prompt is used as a hint.
+   - **The prompt's words** are the last resort.
+   - `src/lib/motionRules.ts` gives any word a motion, so typed corrections come alive too.
+   - "Not quite?" lets the family pick another guess or type what it is.
+5. **Bring to life** (`src/map/MapScene.ts`, a port of the prototype's `map3d.js`):
+   - Regions are extruded into toon-shaded volumes, and lines become wobbly "boiling" pencil tubes in the owner's ink colour.
+   - The newest pair rises up out of the island.
+   - Motion comes from what the drawing is: things fly, swim, sway, float, spin, bounce, swing, flicker, rock, flow, walk or hop. Sky things hover high and water things sit low.
+   - Geometry is cached per drawing.
+
+### Recognising drawings with no internet connection
+
+By default, DoodleNet's weights load from the jsDelivr CDN the first time a scan happens. To bundle them with the app instead, run this once on a computer with internet access:
+
+```bash
+npm run fetch-model
+```
+
+This saves the weights to `public/models/doodlenet/`.
+
+## Data
+
+Everything is stored on the device in IndexedDB (`src/lib/store.ts`), following the data model in the handoff: people, loves, months → places → pairs → drawings, with the paths stored rather than meshes. Scans are kept as JPEG blobs. There are no streaks or dates on the map, and a missed day carries the prompt over. Prompts come from Claude, using both people's picks and the hidden theme of the place, or from a curated list when Claude isn't available.
+
+The **gear** on the Today screen opens a few tools for trying the app out: rename people, get a new prompt now, add sample pairs so you can see the reveal without waiting a week, or start over.
+
+## Layout on iPad
+
+The app is laid out on a logical canvas that is 1280 wide in landscape and 860 wide in portrait, and its height follows the screen. It scales to fit any iPad, respects the safe areas, and the 3D camera pulls back on narrow screens. Pinch-zoom is turned off, and reduced-motion settings slow the animations down.

@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Urbanist:wght@500;700;800;900&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;background:#F2E7C9;}
+a{color:#3d2b22}a:hover{color:#F26A2E}
+button{font-family:'Urbanist',sans-serif}
+@keyframes scanline{from{top:-4%}to{top:100%}}
+@keyframes develop{from{clip-path:inset(0 0 100% 0)}to{clip-path:inset(0 0 0 0)}}
+@keyframes fadein{from{opacity:0}to{opacity:1}}
+@keyframes pop{from{opacity:0;scale:.5}to{opacity:1;scale:1}}
+@keyframes drift{from{translate:0 0}to{translate:110px 0}}
+@keyframes spin{to{rotate:360deg}}
+@keyframes hop{0%,100%{translate:0 0}50%{translate:0 -10px}}
+</style>
+</helmet>
+<div style="min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:20px; padding:20px; box-sizing:border-box; font-family:'Urbanist', sans-serif; color:#3d2b22;">
+  <div style="width:{{ devW }}px; height:{{ devH }}px; position:relative;">
+    <div style="position:absolute; left:0; top:0; width:1352px; height:872px; transform:scale({{ scale }}); transform-origin:0 0; background:#F8EBC2; border-radius:56px; box-shadow:0 12px 0 #E3CC8C, 0 30px 60px rgba(61,43,34,.18);">
+      <div data-screen-label="{{ screenLabel }}" style="position:absolute; left:36px; top:36px; width:1280px; height:800px; border-radius:28px; background:#FFFBF0; overflow:hidden;">
+
+        <!-- ONBOARDING -->
+        <sc-if value="{{ isOnboard }}" hint-placeholder-val="{{ true }}">
+          <div style="position:absolute; inset:0; background:#FFFBF0; display:flex; flex-direction:column; align-items:center; padding-top:50px; box-sizing:border-box;">
+            <div style="font-size:21px; font-weight:700; opacity:.65;">Before we begin · {{ obStep }}</div>
+            <div style="font-size:60px; font-weight:800; letter-spacing:-.025em; margin-top:14px;"><span style="color:{{ obColor }};">{{ obName }}</span>, what do you love?</div>
+            <div style="display:grid; grid-template-columns:repeat(6, 160px); gap:14px; margin-top:36px;">
+              <sc-for list="{{ tiles }}" as="t" hint-placeholder-count="12">
+                <button onClick="{{ t.toggle }}" style="position:relative; height:160px; border:none; background:{{ t.bg }}; color:{{ t.color }}; border-radius:46% 54% 42% 58% / 55% 45% 55% 45%; rotate:{{ t.rot }}; scale:{{ t.scl }}; transition:all .25s ease; cursor:pointer; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; font-size:20px; font-weight:700;">
+                  <svg viewBox="0 0 64 64" width="80" height="80" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="{{ t.fd }}" fill="{{ t.fc }}" fill-opacity="{{ t.fo }}" stroke="currentColor" stroke-width="2.8"></path><path d="{{ t.sd }}" stroke="currentColor" stroke-width="2.8"></path></svg>
+                  {{ t.label }}
+                  <sc-if value="{{ t.other }}"><div style="position:absolute; top:16px; left:28px; width:13px; height:13px; border-radius:50%; background:#2F5FD0;"></div></sc-if>
+                </button>
+              </sc-for>
+            </div>
+            <button onClick="{{ obNext }}" style="margin-top:40px; height:88px; padding:0 50px; border:none; border-radius:12px; background:#F26A2E; color:#FFF3D1; box-shadow:0 9px 0 #B9481B; font-size:32px; font-weight:900; text-transform:uppercase; letter-spacing:.02em; display:flex; align-items:center; gap:20px; cursor:pointer; rotate:-1deg; opacity:{{ obBtnOp }};" style-active="translate:0 6px; box-shadow:0 3px 0 #B9481B;">
+              <svg width="42" height="28" viewBox="0 0 44 28"><path d="M2 10 H26 V2 L42 14 L26 26 V18 H2 Z" fill="#FFF3D1"></path></svg>{{ obBtn }}
+            </button>
+          </div>
+        </sc-if>
+
+        <!-- HOME -->
+        <sc-if value="{{ isHome }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute; inset:0; background:#8FD6D0; overflow:hidden;">
+            <svg width="300" height="300" viewBox="-150 -150 300 300" style="position:absolute; right:-80px; top:-90px;"><g style="animation:spin 80s linear infinite;"><path d="M0 -150 L22 -88 L-22 -88 Z M150 0 L88 22 L88 -22 Z M0 150 L-22 88 L22 88 Z M-150 0 L-88 -22 L-88 22 Z M106 -106 L78 -46 L46 -78 Z M106 106 L46 78 L78 46 Z M-106 106 L-78 46 L-46 78 Z M-106 -106 L-46 -78 L-78 -46 Z" fill="#F5A623"></path></g><circle r="80" fill="#FFC93C"></circle></svg>
+            <svg width="190" height="70" viewBox="0 0 190 70" style="position:absolute; left:-30px; top:70px; animation:drift 40s ease-in-out infinite alternate;"><path d="M30 68 Q0 68 4 46 Q8 26 34 30 Q40 6 70 8 Q96 10 104 30 Q124 16 146 28 Q166 22 178 42 Q192 68 160 68 Z" fill="#CDEDEA"></path></svg>
+            <svg width="230" height="80" viewBox="0 0 190 70" style="position:absolute; left:820px; top:300px; animation:drift 55s ease-in-out infinite alternate-reverse;"><path d="M30 68 Q0 68 4 46 Q8 26 34 30 Q40 6 70 8 Q96 10 104 30 Q124 16 146 28 Q166 22 178 42 Q192 68 160 68 Z" fill="#CDEDEA"></path></svg>
+            <svg width="150" height="56" viewBox="0 0 190 70" style="position:absolute; left:110px; top:520px; animation:drift 48s ease-in-out infinite alternate;"><path d="M30 68 Q0 68 4 46 Q8 26 34 30 Q40 6 70 8 Q96 10 104 30 Q124 16 146 28 Q166 22 178 42 Q192 68 160 68 Z" fill="#CDEDEA"></path></svg>
+            <div style="position:absolute; left:0; right:0; top:90px; height:560px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:30px;">
+              <sc-if value="{{ homePrompt }}">
+                <div style="height:40px; padding:0 20px; border-radius:999px; background:#FFF3D1; color:#1F4C4A; display:flex; align-items:center; font-size:18px; font-weight:800; letter-spacing:.08em; text-transform:uppercase;">Today's prompt</div>
+                <div style="font-size:92px; line-height:1.02; font-weight:900; letter-spacing:-.03em; color:#1F4C4A; text-align:center; max-width:1000px; text-wrap:balance;">{{ todayPrompt }}</div>
+                <button onClick="{{ toScan1 }}" style="margin-top:14px; height:96px; padding:0 52px; border:none; border-radius:12px; background:#F26A2E; color:#FFF3D1; box-shadow:0 10px 0 #B9481B; font-size:38px; font-weight:900; text-transform:uppercase; letter-spacing:.02em; display:flex; align-items:center; gap:24px; cursor:pointer; rotate:-1.2deg;" style-active="translate:0 7px; box-shadow:0 3px 0 #B9481B;">
+                  <svg width="46" height="30" viewBox="0 0 44 28"><path d="M2 10 H26 V2 L42 14 L26 26 V18 H2 Z" fill="#FFF3D1"></path></svg>We're done!
+                </button>
+              </sc-if>
+              <sc-if value="{{ homeDone }}">
+                <div style="height:40px; padding:0 20px; border-radius:999px; background:#FFF3D1; color:#1F4C4A; display:flex; align-items:center; font-size:18px; font-weight:800; letter-spacing:.08em; text-transform:uppercase;">All done for today</div>
+                <div style="font-size:80px; line-height:1.04; font-weight:900; letter-spacing:-.03em; color:#1F4C4A; text-align:center; max-width:960px; text-wrap:balance;">Today's drawings are on the map.</div>
+                <div style="font-size:26px; font-weight:700; color:#1F4C4A; opacity:.75;">A new prompt arrives tomorrow.</div>
+              </sc-if>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- SCAN -->
+        <sc-if value="{{ isScan }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute; inset:0; background:#F5C84C;">
+            <svg width="300" height="200" viewBox="0 0 300 200" style="position:absolute; left:40px; top:300px;" fill="none" stroke="#FFF3D1" stroke-width="7" stroke-linecap="round" stroke-dasharray="0 18"><path d="M10 40 Q80 -10 120 60 T230 90 T290 180"></path></svg>
+            <div style="position:absolute; left:0; right:0; top:48px; display:flex; justify-content:center; align-items:center; gap:14px; font-size:54px; font-weight:900; letter-spacing:-.02em;">
+              <span>{{ scanHeadA }}</span>
+              <sc-if value="{{ scanShowName }}"><span style="padding:2px 22px 8px; border-radius:16px; background:{{ scanColor }}; color:#FFF3D1; rotate:-2deg;">{{ scanName }}</span></sc-if>
+              <span>{{ scanHeadB }}</span>
+            </div>
+            <div style="position:absolute; left:440px; top:160px; width:400px; height:460px; background:#FFF6E3; rotate:-1.5deg;">
+              <div style="position:absolute; left:0; right:0; top:-10px; height:20px; background:radial-gradient(circle, #F5C84C 7px, transparent 7.5px) 0 0 / 22px 20px repeat-x;"></div>
+              <div style="position:absolute; left:0; right:0; bottom:-10px; height:20px; background:radial-gradient(circle, #F5C84C 7px, transparent 7.5px) 0 0 / 22px 20px repeat-x;"></div>
+              <div style="position:absolute; top:0; bottom:0; left:-10px; width:20px; background:radial-gradient(circle, #F5C84C 7px, transparent 7.5px) 0 0 / 20px 22px repeat-y;"></div>
+              <div style="position:absolute; top:0; bottom:0; right:-10px; width:20px; background:radial-gradient(circle, #F5C84C 7px, transparent 7.5px) 0 0 / 20px 22px repeat-y;"></div>
+              <div style="position:absolute; left:26px; right:26px; top:26px; bottom:70px; background:{{ scanTint }}; overflow:hidden; display:flex; align-items:center; justify-content:center;">
+                <sc-if value="{{ scanWait }}">
+                  <div style="width:240px; height:290px; border:4px dashed {{ scanColor }}; border-radius:14px; display:flex; align-items:center; justify-content:center; font-size:22px; font-weight:800; color:{{ scanColor }};">Paper goes here</div>
+                </sc-if>
+                <sc-if value="{{ scanHasPaper }}">
+                  <div style="position:relative; width:250px; height:300px; background:#ffffff; border-radius:8px; box-shadow:0 4px 14px rgba(0,0,0,.12); rotate:1.5deg; overflow:hidden; display:flex; align-items:center; justify-content:center;">
+                    <div style="width:190px; height:190px; animation:{{ scanDevelop }};">
+                      <svg viewBox="0 0 64 64" width="190" height="190" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="{{ scanIcon.fd }}" fill="{{ scanIcon.fc }}" fill-opacity=".6" stroke="{{ scanColor }}" stroke-width="2.6"></path><path d="{{ scanIcon.sd }}" stroke="{{ scanColor }}" stroke-width="2.6"></path></svg>
+                    </div>
+                    <sc-if value="{{ scanning }}">
+                      <div style="position:absolute; left:0; right:0; height:22px; background:linear-gradient(rgba(255,230,109,0), #FFE66D, rgba(255,230,109,0)); animation:scanline 2.4s ease-in-out both;"></div>
+                    </sc-if>
+                  </div>
+                </sc-if>
+              </div>
+              <div style="position:absolute; left:26px; right:26px; bottom:18px; display:flex; justify-content:space-between; align-items:center; font-size:22px; font-weight:900; text-transform:uppercase;">
+                <span style="color:{{ scanColor }};">{{ scanName }}</span><span style="opacity:.55;">{{ scanStep }}</span>
+              </div>
+              <sc-if value="{{ scanDone }}">
+                <div style="position:absolute; right:-34px; top:-34px; width:84px; height:84px; border-radius:50%; background:#6CC24A; display:flex; align-items:center; justify-content:center; box-shadow:0 6px 0 #3f9a28; animation:pop .5s cubic-bezier(.3,1.6,.5,1) both;">
+                  <svg width="40" height="40" viewBox="0 0 28 28" fill="none" stroke="#FFF3D1" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 15 L11 21 L23 7"></path></svg>
+                </div>
+              </sc-if>
+            </div>
+            <div style="position:absolute; left:0; right:0; top:666px; display:flex; justify-content:center;">
+              <sc-if value="{{ scanning }}">
+                <div style="height:84px; padding:0 48px; border-radius:12px; background:#FFF3D1; box-shadow:0 8px 0 #E0C886; display:flex; align-items:center; font-size:30px; font-weight:900; text-transform:uppercase; color:#F26A2E;">Scanning…</div>
+              </sc-if>
+              <sc-if value="{{ scanShowBtn }}">
+                <button onClick="{{ scanAction }}" style="height:88px; padding:0 48px; border:none; border-radius:12px; background:#F26A2E; color:#FFF3D1; box-shadow:0 9px 0 #B9481B; font-size:32px; font-weight:900; text-transform:uppercase; letter-spacing:.02em; display:flex; align-items:center; gap:20px; cursor:pointer; rotate:-1deg;" style-active="translate:0 6px; box-shadow:0 3px 0 #B9481B;">
+                  <svg width="42" height="28" viewBox="0 0 44 28"><path d="M2 10 H26 V2 L42 14 L26 26 V18 H2 Z" fill="#FFF3D1"></path></svg>{{ scanBtn }}
+                </button>
+              </sc-if>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- TODAY'S SKETCHES -->
+        <sc-if value="{{ isSketches }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute; inset:0; background:#E9A3C0; overflow:hidden; animation:fadein .8s ease both;">
+            <div style="position:absolute; left:0; right:0; top:10px; text-align:center; font-size:190px; line-height:1; font-weight:900; letter-spacing:-.02em; color:#F5C84C;">TODAY'S</div>
+            <div style="position:absolute; left:0; right:0; top:440px; text-align:center; font-size:190px; line-height:1; font-weight:900; letter-spacing:-.02em; color:#F5C84C;">SKETCHES</div>
+            <svg width="260" height="160" viewBox="0 0 260 160" style="position:absolute; left:40px; top:250px;" fill="none" stroke="#F5C84C" stroke-width="7" stroke-linecap="round" stroke-dasharray="0 18"><path d="M10 20 Q60 120 120 60 T250 140"></path></svg>
+            <div style="position:absolute; left:0; right:0; top:150px; display:flex; justify-content:center; gap:70px;">
+              <sc-for list="{{ todayPair }}" as="c" hint-placeholder-count="2">
+                <div style="position:relative; width:290px; height:350px; background:#FFF6E3; rotate:{{ c.r }}deg; box-shadow:0 14px 30px rgba(61,43,34,.18); animation:hop 3s ease-in-out infinite; animation-delay:{{ c.delay }};">
+                  <div style="position:absolute; left:0; right:0; top:-9px; height:18px; background:radial-gradient(circle, #E9A3C0 6px, transparent 6.5px) 0 0 / 20px 18px repeat-x;"></div>
+                  <div style="position:absolute; left:0; right:0; bottom:-9px; height:18px; background:radial-gradient(circle, #E9A3C0 6px, transparent 6.5px) 0 0 / 20px 18px repeat-x;"></div>
+                  <div style="position:absolute; top:0; bottom:0; left:-9px; width:18px; background:radial-gradient(circle, #E9A3C0 6px, transparent 6.5px) 0 0 / 18px 20px repeat-y;"></div>
+                  <div style="position:absolute; top:0; bottom:0; right:-9px; width:18px; background:radial-gradient(circle, #E9A3C0 6px, transparent 6.5px) 0 0 / 18px 20px repeat-y;"></div>
+                  <div style="position:absolute; left:20px; right:20px; top:20px; bottom:64px; background:{{ c.tint }}; display:flex; align-items:center; justify-content:center;">
+                    <svg viewBox="0 0 64 64" width="190" height="190" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="{{ c.fd }}" fill="{{ c.fc }}" fill-opacity=".6" stroke="{{ c.color }}" stroke-width="2.6"></path><path d="{{ c.sd }}" stroke="{{ c.color }}" stroke-width="2.6"></path></svg>
+                  </div>
+                  <div style="position:absolute; left:20px; right:20px; bottom:16px; font-size:26px; font-weight:900; text-transform:uppercase; color:{{ c.color }};">{{ c.owner }}</div>
+                </div>
+              </sc-for>
+            </div>
+            <div style="position:absolute; left:0; right:0; top:666px; display:flex; justify-content:center;">
+              <button onClick="{{ toBuilding }}" style="height:88px; padding:0 48px; border:none; border-radius:12px; background:#F26A2E; color:#FFF3D1; box-shadow:0 9px 0 #B9481B; font-size:32px; font-weight:900; text-transform:uppercase; letter-spacing:.02em; display:flex; align-items:center; gap:20px; cursor:pointer; rotate:-1deg;" style-active="translate:0 6px; box-shadow:0 3px 0 #B9481B;">
+                <svg width="42" height="28" viewBox="0 0 44 28"><path d="M2 10 H26 V2 L42 14 L26 26 V18 H2 Z" fill="#FFF3D1"></path></svg>Show on map
+              </button>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- 3D MAP (stack / inside a map / place / reveal) -->
+        <sc-if value="{{ isMap }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute; inset:0; background:linear-gradient(#8FD6D0 0%, #CDEDE6 48%, #FFF6DE 100%);">
+            <svg width="190" height="70" viewBox="0 0 190 70" style="position:absolute; left:60px; top:110px; animation:drift 45s ease-in-out infinite alternate;"><path d="M30 68 Q0 68 4 46 Q8 26 34 30 Q40 6 70 8 Q96 10 104 30 Q124 16 146 28 Q166 22 178 42 Q192 68 160 68 Z" fill="#E6F6F3"></path></svg>
+            <svg width="240" height="88" viewBox="0 0 190 70" style="position:absolute; left:900px; top:150px; animation:drift 60s ease-in-out infinite alternate-reverse;"><path d="M30 68 Q0 68 4 46 Q8 26 34 30 Q40 6 70 8 Q96 10 104 30 Q124 16 146 28 Q166 22 178 42 Q192 68 160 68 Z" fill="#E6F6F3"></path></svg>
+            <x-import component-from-global-scope="dadi-map3d" from="./map3d.js" config="{{ mapConfig }}" style="position:absolute; inset:0;" hint-size="100%,100%"></x-import>
+            <div style="position:absolute; left:0; right:0; top:30px; display:flex; flex-direction:column; align-items:center; gap:4px; pointer-events:none;">
+              <div style="font-size:46px; font-weight:900; letter-spacing:-.02em; color:#1F4C4A;">{{ mapTitle }}</div>
+              <div style="font-size:19px; font-weight:700; color:#1F4C4A; opacity:.75; white-space:nowrap;">{{ mapHint }}</div>
+            </div>
+            <sc-if value="{{ isPlaceUI }}">
+              <div style="position:absolute; left:50%; top:590px; translate:-50% 0; padding:16px 28px; border-radius:16px; background:#FFF3D1; box-shadow:0 8px 0 #E0C886; display:flex; align-items:center; gap:22px; white-space:nowrap;">
+                <div style="display:flex; align-items:center;">
+                  <sc-for list="{{ steps }}" as="d" hint-placeholder-count="7">
+                    <div style="display:flex; align-items:center;">
+                      <sc-if value="{{ d.line }}"><div style="width:18px; height:4px; background:#3d2b22; opacity:.25;"></div></sc-if>
+                      <div style="width:24px; height:24px; border-radius:50%; background:{{ d.bg }}; box-shadow:inset 0 0 0 3px {{ d.ring }}; transition:background 1s ease;"></div>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="font-size:22px; font-weight:800;">{{ toGo }}</div>
+                <sc-if value="{{ rowBookBtn }}">
+                  <button onClick="{{ openPlaceBook }}" style="height:46px; padding:0 18px; border:none; border-radius:10px; background:#F26A2E; color:#FFF3D1; box-shadow:0 5px 0 #B9481B; font-size:17px; font-weight:900; text-transform:uppercase; cursor:pointer;" style-active="translate:0 3px; box-shadow:0 2px 0 #B9481B;">In our scrapbook</button>
+                </sc-if>
+              </div>
+            </sc-if>
+            <sc-if value="{{ placeBtnShow }}">
+              <div style="position:absolute; left:0; right:0; top:690px; display:flex; justify-content:center; animation:fadein 1.2s ease both;">
+                <button onClick="{{ placeAction }}" style="height:84px; padding:0 46px; border:none; border-radius:12px; background:#F26A2E; color:#FFF3D1; box-shadow:0 9px 0 #B9481B; font-size:30px; font-weight:900; text-transform:uppercase; letter-spacing:.02em; display:flex; align-items:center; gap:20px; cursor:pointer; rotate:-1deg;" style-active="translate:0 6px; box-shadow:0 3px 0 #B9481B;">
+                  <svg width="42" height="28" viewBox="0 0 44 28"><path d="M2 10 H26 V2 L42 14 L26 26 V18 H2 Z" fill="#FFF3D1"></path></svg>{{ placeBtn }}
+                </button>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+
+        <!-- SCRAPBOOK -->
+        <sc-if value="{{ isBook }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute; inset:0; background:#E9A3C0;">
+            <div style="position:absolute; left:0; right:0; top:26px; display:flex; flex-direction:column; align-items:center; gap:10px;">
+              <div style="font-size:72px; line-height:1; font-weight:900; letter-spacing:-.02em; color:#F5C84C;">OUR SCRAPBOOK</div>
+              <div style="display:flex; align-items:center; gap:14px;">
+                <div style="height:38px; padding:0 18px; border-radius:999px; background:#FFF3D1; display:flex; align-items:center; font-size:19px; font-weight:800;">{{ bookTitle }}</div>
+                <div style="height:38px; padding:0 14px; border-radius:999px; background:#FFF3D1; display:flex; align-items:center; gap:14px; font-size:17px; font-weight:800;">
+                  <span style="display:flex; align-items:center; gap:6px; color:#2F5FD0;"><span style="width:11px; height:11px; border-radius:50%; background:#2F5FD0;"></span>Dadi</span>
+                  <span style="display:flex; align-items:center; gap:6px; color:#C8431E;"><span style="width:11px; height:11px; border-radius:50%; background:#E4572E;"></span>{{ childName }}</span>
+                </div>
+              </div>
+            </div>
+            <sc-for list="{{ bookItems }}" as="g" hint-placeholder-count="3">
+              <div style="position:absolute; left:{{ g.x }}px; top:{{ g.y }}px; width:320px; display:flex; flex-direction:column; align-items:center; rotate:{{ g.r }}deg; animation:fadein .7s ease both;">
+                <div style="display:flex; gap:8px; position:relative; z-index:1;">
+                  <sc-for list="{{ g.pair }}" as="c" hint-placeholder-count="2">
+                    <svg viewBox="0 0 64 64" width="140" height="140" fill="none" stroke-linecap="round" stroke-linejoin="round" style="rotate:{{ c.r }}deg;"><path d="{{ c.fd }}" fill="{{ c.fc }}" fill-opacity=".6" stroke="{{ c.color }}" stroke-width="2.6"></path><path d="{{ c.sd }}" stroke="{{ c.color }}" stroke-width="2.6"></path></svg>
+                  </sc-for>
+                </div>
+                <div style="position:relative; width:320px; height:240px; margin-top:-26px;">
+                  <img src="assets/paper-note.png" alt="" style="position:absolute; inset:0; width:100%; height:100%; pointer-events:none;">
+                  <div style="position:absolute; left:14%; right:12%; top:34%; bottom:24%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; text-align:center;">
+                    <div style="font-size:14px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; opacity:.6;">{{ g.day }}</div>
+                    <div style="font-size:24px; line-height:1.12; font-weight:800; text-wrap:balance;">{{ g.prompt }}</div>
+                  </div>
+                </div>
+              </div>
+            </sc-for>
+            <button onClick="{{ pagePrev }}" style="position:absolute; left:20px; top:350px; width:68px; height:68px; border:none; border-radius:50%; background:#FFF3D1; box-shadow:0 6px 0 #E0C886; cursor:pointer; opacity:{{ prevOp }}; display:flex; align-items:center; justify-content:center; padding:0;" style-active="translate:0 4px; box-shadow:0 2px 0 #E0C886;">
+              <svg width="26" height="26" viewBox="0 0 22 22" fill="none" stroke="#F26A2E" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4 L7 11 L14 18"></path></svg>
+            </button>
+            <button onClick="{{ pageNext }}" style="position:absolute; right:20px; top:350px; width:68px; height:68px; border:none; border-radius:50%; background:#FFF3D1; box-shadow:0 6px 0 #E0C886; cursor:pointer; opacity:{{ nextOp }}; display:flex; align-items:center; justify-content:center; padding:0;" style-active="translate:0 4px; box-shadow:0 2px 0 #E0C886;">
+              <svg width="26" height="26" viewBox="0 0 22 22" fill="none" stroke="#F26A2E" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4 L15 11 L8 18"></path></svg>
+            </button>
+            <div style="position:absolute; left:0; right:0; top:652px; text-align:center; font-size:18px; font-weight:700; opacity:.7;">{{ pageLabel }}</div>
+          </div>
+        </sc-if>
+
+        <!-- BACK -->
+        <sc-if value="{{ showBack }}" hint-placeholder-val="{{ false }}">
+          <button onClick="{{ backAction }}" style="position:absolute; left:30px; top:30px; height:56px; padding:0 22px 0 16px; border:none; border-radius:10px; background:#FFF3D1; box-shadow:0 6px 0 #E0C886; color:#F26A2E; display:flex; align-items:center; gap:8px; font-size:19px; font-weight:900; text-transform:uppercase; cursor:pointer; z-index:20;" style-active="translate:0 4px; box-shadow:0 2px 0 #E0C886;">
+            <svg width="18" height="18" viewBox="0 0 22 22" fill="none" stroke="#F26A2E" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4 L7 11 L14 18"></path></svg>{{ backLabel }}
+          </button>
+        </sc-if>
+
+        <!-- DOCK -->
+        <sc-if value="{{ showDock }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute; left:0; right:0; top:700px; display:flex; justify-content:center; gap:22px; z-index:20;">
+            <sc-for list="{{ dock }}" as="n" hint-placeholder-count="2">
+              <button onClick="{{ n.go }}" style="height:66px; padding:0 30px; border:none; border-radius:10px; background:#FFF3D1; box-shadow:0 7px 0 #E0C886; color:#F26A2E; display:flex; align-items:center; gap:12px; font-size:24px; font-weight:900; text-transform:uppercase; letter-spacing:.02em; cursor:pointer; rotate:{{ n.rot }};" style-active="translate:0 5px; box-shadow:0 2px 0 #E0C886;">
+                <sc-if value="{{ n.today }}"><svg width="24" height="24" viewBox="-10 -10 20 20"><path d="M0 -10 Q1.6 -1.6 10 0 Q1.6 1.6 0 10 Q-1.6 1.6 -10 0 Q-1.6 -1.6 0 -10Z" fill="#F26A2E"></path></svg></sc-if>
+                <sc-if value="{{ n.map }}"><svg width="28" height="28" viewBox="0 0 24 24" fill="#F26A2E" fill-opacity=".25" stroke="#F26A2E" stroke-width="2.4" stroke-linejoin="round"><path d="M2 5 L8 3 L16 6 L22 4 L22 19 L16 21 L8 18 L2 20 Z M8 3 L8 18 M16 6 L16 21"></path></svg></sc-if>
+                <sc-if value="{{ n.book }}"><svg width="28" height="28" viewBox="0 0 24 24" fill="#F26A2E" fill-opacity=".25" stroke="#F26A2E" stroke-width="2.4" stroke-linejoin="round"><path d="M12 6 Q7 3 2 4 L2 19 Q7 18 12 21 Q17 18 22 19 L22 4 Q17 3 12 6 Z M12 6 L12 21"></path></svg></sc-if>
+                {{ n.label }}
+              </button>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex; flex-wrap:wrap; justify-content:center; gap:6px; max-width:1100px;">
+    <sc-for list="{{ jumps }}" as="j" hint-placeholder-count="11">
+      <button onClick="{{ j.go }}" style="height:30px; padding:0 13px; border-radius:20px; border:none; background:{{ j.bg }}; color:{{ j.fg }}; font-size:14px; font-weight:700; cursor:pointer;">{{ j.label }}</button>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;childName&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Anu&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;todayIs&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;7th drawing (reveal)&quot;,&quot;4th drawing&quot;],&quot;default&quot;:&quot;7th drawing (reveal)&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;skipOnboarding&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;}}">
+const INK='#3d2b22',DADI='#2F5FD0',ANU='#E4572E',YEL='#FFC93C',ORG='#F26A2E';
+const circ=(cx,cy,r)=>`M${cx-r} ${cy}a${r} ${r} 0 1 0 ${2*r} 0a${r} ${r} 0 1 0 ${-2*r} 0Z`;
+const ell=(cx,cy,rx,ry)=>`M${cx-rx} ${cy}a${rx} ${ry} 0 1 0 ${2*rx} 0a${rx} ${ry} 0 1 0 ${-2*rx} 0Z`;
+const ICON={
+cat:{f:['M14 30L16 10 28 20Q32 19 36 20L48 10 50 30Q50 52 32 52 14 52 14 30Z'],s:['M25 32h.1M39 32h.1M28 40q4 4 8 0']},
+bird:{f:['M8 38Q20 16 40 28L56 20 46 34Q44 52 24 48Q12 46 8 38Z'],s:['M36 33h.1M18 52l-4 6M28 52l-2 6']},
+mango:{f:['M32 16Q54 18 50 40 46 58 28 52 10 46 16 28 20 16 32 16Z'],s:['M32 16Q40 4 50 10']},
+chai:{f:['M12 26H44V40Q44 54 28 54 12 54 12 40Z'],s:['M44 30Q58 30 54 40 52 46 44 46M22 6q-5 6 0 11M32 6q-5 6 0 11']},
+diya:{f:['M6 36Q32 64 58 36Z','M32 34Q20 22 32 6 44 22 32 34Z'],s:[]},
+kite:{f:['M32 4L52 28 32 52 12 28Z'],s:['M32 4V52M12 28H52M32 52q-9 4 0 8t0 5']},
+note:{f:[ell(18,46,7,5.5),ell(44,40,7,5.5)],s:['M24 46V14L50 8V40']},
+waves:{f:[],s:['M6 18q8-9 13 0t13 0t13 0t13 0M6 32q8-9 13 0t13 0t13 0t13 0M6 46q8-9 13 0t13 0t13 0t13 0']},
+tree:{f:['M32 6Q54 6 52 28 48 42 32 40 14 42 12 26 10 6 32 6Z'],s:['M32 58V36']},
+moon:{f:['M40 6Q12 12 16 38 22 60 48 52 26 46 28 28 30 14 40 6Z'],s:['M50 14l3 7 7 1-6 4 2 7-6-4-6 4 2-7-6-4 7-1z']},
+fish:{f:['M6 32Q26 10 46 32 26 54 6 32Z','M46 32L60 18V46Z'],s:['M18 29h.1']},
+home:{f:['M12 28V56H52V28Z'],s:['M6 30L32 6 58 30','M27 56V40H39V56']},
+sun:{f:[circ(32,32,11)],s:['M32 6v10M32 48v10M6 32h10M48 32h10M14 14l7 7M43 43l7 7M14 50l7-7M43 21l7-7']},
+boat:{f:['M8 40H56L48 56H16Z','M32 36V6L52 32Z'],s:['M4 60q8-6 14 0t14 0t14 0']},
+bell:{f:['M14 46Q14 14 32 12 50 14 50 46Z'],s:['M8 48H56M28 56h8M32 6v6']},
+drum:{f:['M8 24Q32 12 56 24V46Q32 60 8 46Z'],s:['M8 24Q32 36 56 24M20 6l8 16M44 6l-8 16']},
+flower:{f:[circ(32,22,6),circ(32,9,6),circ(45,22,6),circ(19,22,6),circ(32,35,6)],s:['M32 58V34']}};
+const NC={cat:'#FFB26B',bird:'#FFC93C',mango:'#FF9F1C',chai:'#C98B5A',diya:'#FF7A1A',kite:'#FF5D8F',note:'#9B5DE5',waves:'#5AB0F0',tree:'#6CC24A',moon:'#FFE066',fish:'#FF8A3D',home:'#E86A4A',sun:'#FFCE1F',boat:'#E4572E',bell:'#FFC93C',drum:'#E4572E',flower:'#FF7BAC'};
+const SHAPES={
+A:'M20 120 Q40 60 120 70 Q200 80 250 50 Q330 20 400 60 Q470 90 460 160 Q450 230 370 225 Q290 220 230 245 Q140 270 70 235 Q10 200 20 120 Z',
+B:'M30 170 Q20 110 70 90 Q90 50 120 80 Q170 60 230 70 L250 30 L280 72 Q340 66 380 90 Q420 40 450 90 Q475 150 450 210 Q420 255 330 250 L120 255 Q40 250 30 170 Z',
+C:'M40 140 Q30 60 130 50 Q240 35 340 45 Q450 55 445 140 Q440 235 330 240 Q220 250 120 238 Q45 225 40 140 Z',
+D:'M30 200 Q30 120 90 100 L120 40 L160 95 Q260 80 350 90 Q450 100 450 180 Q450 250 300 248 Q150 252 80 245 Q30 240 30 200 Z'};
+const G6=[['Draw something that grows','tree','flower'],['Draw something warm','sun','chai'],['Draw something sweet','mango','mango'],['Draw a place to rest','home','tree'],['Draw something that flies','kite','bird'],['Draw something you see at night','moon','diya']];
+const TODAY=['Draw a bird you saw last','bird','bird'];
+const RIVER=[['Draw something that moves','waves','fish'],['Draw something that floats','diya','boat'],['Draw something that sings','bird','note'],['Draw something you can see from far away','moon','tree'],['Draw something shiny','fish','sun'],['Draw something you hold with both hands','chai','kite'],['Draw something that makes a sound','bell','drum']];
+const POOL=[['Draw your favourite fruit','mango','mango'],['Draw something round','sun','drum'],['Draw a friend with four legs','cat','cat'],['Draw something that lights up','diya','moon'],['Draw a song you know','note','bell'],['Draw where you sleep','home','moon'],['Draw something from the water','fish','boat'],['Draw something tall','tree','kite'],['Draw something you drink','chai','chai'],['Draw something from a festival','diya','kite'],['Draw something that waves','waves','flower'],['Draw a morning visitor','bird','cat']];
+const TILES=[['Cats','cat'],['Birds','bird'],['Mangoes','mango'],['Chai','chai'],['Diwali','diya'],['Kites','kite'],['Songs','note'],['Rivers','waves'],['Trees','tree'],['Moon nights','moon'],['Fish','fish'],['Home','home']];
+const BOOKPOS=[{x:90,y:180,r:-1.5},{x:480,y:220,r:1},{x:870,y:185,r:-.5}];
+const JUMPS=[['Onboarding','onboard'],['Today','home'],['Scan · Dadi','scan1'],['Scan · grandchild','scan2'],["Today's sketches",'sketches'],['New drawings on the map','building'],['Reveal','reveal'],['All maps','stack'],['Inside a map','interior'],['A finished place','finished'],['Scrapbook','book']];
+const pastPairs=off=>[0,1,2,3,4,5,6].map(k=>POOL[(off+k)%POOL.length]);
+const icon=(k,color)=>({fd:(ICON[k].f||[]).join(' '),sd:(ICON[k].s||[]).join(' '),fc:NC[k],color});
+
+class Component extends DCLogic {
+  state={screen:null,ob:0,picks:{dadi:['cat','waves'],anu:['bird','mango']},done:false,revealed:false,phase:'wait',stage:0,mi:0,pl:{mi:0,pi:1},fresh:false,page:null,scale:.6};
+  componentDidMount(){
+    this.fit=()=>{const s=Math.min((innerWidth-40)/1352,(innerHeight-100)/880,1.2);this.setState({scale:Math.max(.25,s)});};this.fit();addEventListener('resize',this.fit);
+    window.__dadiMapPick=d=>{ if(d.type==='month') this.go('interior',{mi:d.mi}); else if(d.type==='place') this.go('place',{pl:{mi:this.state.mi,pi:d.pi}}); };
+  }
+  componentWillUnmount(){removeEventListener('resize',this.fit);this.clear();if(window.__dadiMapPick)delete window.__dadiMapPick;}
+  clear(){(this.t||[]).forEach(clearTimeout);this.t=[];}
+  later(ms,fn){this.t=this.t||[];this.t.push(setTimeout(fn,ms));}
+  go(screen,extra={}){this.clear();this.setState({screen,phase:'wait',stage:0,fresh:false,...extra});
+    if(screen==='reveal'){this.later(400,()=>this.setState({stage:1}));this.later(3200,()=>this.setState({stage:2}));this.later(4600,()=>this.setState({stage:3}));}}
+  data(){
+    const s=this.state,isLast=(this.props.todayIs||'7th drawing (reveal)')!=='4th drawing',base=isLast?6:3;
+    const garden=G6.slice(0,base).concat(s.done?[TODAY]:[]);
+    const rev=s.revealed&&isLast;
+    const mk=(name,shape,color,theme,pairs,status)=>({name,shape,color,theme,pairs,status});
+    const months=[
+      {name:'October',current:true,places:[mk('The River','A','#8CCFF0','river',RIVER,'done'),mk('The Garden','B','#9BD770','garden',garden,rev?'done':'current'),mk('The Market','C','#F6C778',null,[],rev?'current':'locked'),mk('The Rooftop','D','#F2A28A',null,[],'locked')]},
+      {name:'September',places:[mk('The Pond','A','#8CCFF0','river',pastPairs(0),'done'),mk('The Kitchen','C','#F6C778',null,pastPairs(3),'done'),mk('The Courtyard','B','#9BD770','garden',pastPairs(6),'done'),mk('The Fair','D','#F2A28A',null,pastPairs(9),'done')]},
+      {name:'August',places:[mk('The Beach','A','#8CCFF0','river',pastPairs(2),'done'),mk('The Train','C','#F2A28A',null,pastPairs(5),'done'),mk('The Orchard','B','#9BD770','garden',pastPairs(8),'done'),mk('The Bazaar','D','#F6C778',null,pastPairs(11),'done')]}];
+    const pages=[];
+    [2,1,0].forEach(mi=>months[mi].places.forEach((p,pi)=>{const n=Math.ceil(p.pairs.length/3);for(let k=0;k<n;k++)pages.push({mi,pi,k});}));
+    return {isLast,months,pages};
+  }
+  renderVals(){
+    const s=this.state,pr=this.props,child=pr.childName||'Anu',childPoss=child+"'s";
+    const screen=s.screen||(pr.skipOnboarding?'home':'onboard');
+    const {isLast,months,pages}=this.data();
+    // onboarding
+    const obWho=s.ob===0?'dadi':'anu',obColor=obWho==='dadi'?DADI:ANU;
+    const tiles=TILES.map(([label,k],i)=>{const sel=s.picks[obWho].includes(k);const ic=icon(k);return {...ic,label,fo:sel?.6:.15,fc:sel?NC[k]:'currentColor',
+      color:sel?obColor:INK,bg:sel?(obWho==='dadi'?'rgba(47,95,208,.14)':'rgba(228,87,46,.14)'):'transparent',rot:sel?'-3deg':'0deg',scl:sel?'1.05':'1',other:obWho==='anu'&&s.picks.dadi.includes(k),
+      toggle:()=>this.setState(st=>{const cur=st.picks[obWho];return {picks:{...st.picks,[obWho]:cur.includes(k)?cur.filter(x=>x!==k):cur.concat(k)}};})};});
+    const obCount=s.picks[obWho].length;
+    // scan
+    const who=screen==='scan1'?'dadi':'anu',ph=s.phase,scanColor=who==='dadi'?DADI:ANU;
+    const head=ph==='wait'?['Put',true,"'s drawing on the tray"]:ph==='scanning'?['Scanning. Keep it still.',false,'']:["It's scanned!",false,''];
+    // map
+    const isMapScr=['stack','interior','place','reveal'].includes(screen);
+    const pl=screen==='reveal'?{mi:0,pi:1}:s.pl,curP=months[pl.mi].places[pl.pi];
+    const P=p=>({name:p.name,shape:p.shape,color:p.color,theme:p.theme,status:p.status,pairs:p.pairs.map(q=>[q[1],q[2]])});
+    const base={icons:ICON,colors:NC,shapes:SHAPES};
+    let cfg=null,mapTitle='',mapHint='';
+    if(screen==='stack'){cfg={mode:'stack',months:months.map(m=>({name:m.name,current:!!m.current,places:m.places.map(P)}))};mapTitle='All our maps';mapHint='Scroll or drag to look through · tap a map to go inside';}
+    if(screen==='interior'){const m=months[s.mi];cfg={mode:'month',mi:s.mi,places:m.places.map(P)};mapTitle=m.name+(m.current?' · in progress':'');mapHint='Drag to turn the map · tap a place to visit it';}
+    const n=curP.pairs.length,curDone=curP.status==='done';
+    if(screen==='place'){cfg={mode:'place',k:pl.mi+'-'+pl.pi,place:P(curP),fresh:s.fresh?n-1:-1};mapTitle=curDone?curP.name:'Theme: ???';mapHint='Drag to turn it around';}
+    if(screen==='reveal'){const solid=s.stage>=1;cfg={mode:'place',k:'reveal',place:{...P(curP),status:solid?'done':'current'},fade:solid};mapTitle=s.stage>=2?'This is your Garden!':'Theme: ???';mapHint=s.stage>=2?'Seven drawings, one place':'';}
+    const mapConfig=cfg?JSON.stringify({...base,...cfg}):'';
+    const isReveal=screen==='reveal',isPlace=screen==='place';
+    const steps=[0,1,2,3,4,5,6].map(k=>{const f=k<n,nw=s.fresh&&k===n-1;return {line:k>0,bg:nw?YEL:f?ORG:'transparent',ring:f?'transparent':'rgba(61,43,34,.3)'};});
+    const toGo=(curDone||isReveal)?'All seven done':(7-n)===1?'1 more to go':(7-n)+' more to go';
+    const freshLast=isPlace&&s.fresh&&isLast&&curP.status==='current'&&n===7;
+    // book
+    const lastPage=pages.length-1,page=s.page==null?lastPage:Math.min(s.page,lastPage);
+    let bookItems=[],bookTitle='',pageLabel='';
+    if(screen==='book'){const pg=pages[page],m=months[pg.mi],bp=m.places[pg.pi];
+      bookTitle=(bp.status==='done'?bp.name:"This week's place")+' · '+m.name;pageLabel='Page '+(page+1)+' of '+pages.length;
+      bookItems=bp.pairs.slice(pg.k*3,pg.k*3+3).map((q,k)=>({...BOOKPOS[k],day:'Day '+(pg.k*3+k+1),prompt:q[0],pair:[{...icon(q[1],DADI),r:-3},{...icon(q[2],ANU),r:3}]}));}
+    const pageFor=(mi,pi)=>pages.findIndex(p=>p.mi===mi&&p.pi===pi);
+    // nav
+    const T={label:"Today's prompt",today:true,go:()=>this.go('home')},M={label:'Map',map:true,go:()=>this.go('stack')},B={label:'Scrapbook',book:true,go:()=>this.go('book',{page:null})};
+    const mapNav=['stack','interior','place'].includes(screen);
+    const dock=(screen==='home'?[M,B]:mapNav?[T,B]:screen==='book'?[T,M]:[]).map((d,i)=>({...d,rot:i?'1deg':'-1deg'}));
+    const showDock=dock.length>0&&!freshLast;
+    const showBack=screen==='interior'||isPlace;
+    const jump=id=>{const ex={};let scr=id;
+      if(id==='onboard')ex.ob=0;
+      if(['home','scan1','scan2'].includes(id)){ex.done=false;ex.revealed=false;}
+      if(['sketches','reveal'].includes(id)){ex.done=true;ex.revealed=false;}
+      if(id==='building'){scr='place';ex.done=true;ex.revealed=false;ex.pl={mi:0,pi:1};}
+      if(id==='interior')ex.mi=0;
+      if(id==='finished'){scr='place';ex.pl={mi:1,pi:0};}
+      if(id==='book')ex.page=null;
+      this.go(scr,ex);if(id==='building')this.setState({fresh:true});};
+    const jumpActive=id=>id===screen||(id==='building'&&isPlace&&s.fresh)||(id==='finished'&&isPlace&&!s.fresh&&s.pl.mi===1);
+    const sc=s.scale;
+    return {
+      scale:sc,devW:1352*sc,devH:880*sc,screenLabel:screen,childName:child,
+      isOnboard:screen==='onboard',obStep:(s.ob+1)+' of 2',obName:obWho==='dadi'?'Dadi':child,obColor,tiles,
+      obBtn:s.ob===0?"That's me":'Start our map',obBtnOp:obCount?1:.35,obNext:()=>{if(!obCount)return;if(s.ob===0)this.setState({ob:1});else this.go('home');},
+      isHome:screen==='home',homePrompt:!s.done,homeDone:s.done,todayPrompt:TODAY[0],toScan1:()=>this.go('scan1'),
+      isScan:screen==='scan1'||screen==='scan2',scanWait:ph==='wait',scanHasPaper:ph!=='wait',scanning:ph==='scanning',scanDone:ph==='done',
+      scanDevelop:ph==='scanning'?'develop 2.4s ease-in-out both':'none',scanColor,scanTint:who==='dadi'?'#DCE6FA':'#FBE1D7',scanIcon:icon(who==='dadi'?TODAY[1]:TODAY[2]),
+      scanName:who==='dadi'?'Dadi':child,scanStep:who==='dadi'?'1 of 2':'2 of 2',scanHeadA:head[0],scanShowName:head[1],scanHeadB:head[2],
+      scanShowBtn:ph!=='scanning',scanBtn:ph==='wait'?"It's on the tray":who==='dadi'?'Now '+childPoss+' turn':"See today's sketches",
+      scanAction:()=>{if(ph==='wait'){this.setState({phase:'scanning'});this.later(2600,()=>this.setState({phase:'done'}));}else if(who==='dadi')this.go('scan2');else this.go('sketches',{done:true});},
+      isSketches:screen==='sketches',
+      todayPair:[{...icon(TODAY[1],DADI),r:-3,owner:'Dadi',tint:'#C9D8F7',delay:'0s'},{...icon(TODAY[2],ANU),r:2.5,owner:child,tint:'#F9CDBB',delay:'.5s'}],
+      toBuilding:()=>this.go('place',{pl:{mi:0,pi:1},fresh:true,done:true}),
+      isMap:isMapScr,mapConfig,mapTitle,mapHint,
+      isPlaceUI:isPlace||(isReveal&&s.stage>=2),steps,toGo,rowBookBtn:isPlace&&curDone,openPlaceBook:()=>this.go('book',{page:pageFor(pl.mi,pl.pi)}),
+      placeBtnShow:isReveal?s.stage>=3:freshLast,placeBtn:isReveal?'See our map':'See what we made',
+      placeAction:()=>{if(isReveal)this.go('interior',{mi:0,revealed:true});else this.go('reveal');},
+      isBook:screen==='book',bookTitle,bookItems,pageLabel,prevOp:page>0?1:.35,nextOp:page<lastPage?1:.35,
+      pagePrev:()=>{if(page>0)this.setState({page:page-1});},pageNext:()=>{if(page<lastPage)this.setState({page:page+1});},
+      showDock,dock,showBack,backLabel:screen==='interior'?'All maps':'Map',
+      backAction:()=>{if(screen==='interior')this.go('stack');else this.go('interior',{mi:s.pl.mi});},
+      jumps:JUMPS.map(([label,id])=>{const a=jumpActive(id);return {label,bg:a?INK:'rgba(0,0,0,.06)',fg:a?'#fff':INK,go:()=>jump(id)};})
+    };
+  }
+}
+</script>
+</body>
+</html>

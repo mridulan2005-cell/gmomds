@@ -1,0 +1,47 @@
+{
+  "name": "dadis-map",
+  "version": "1.0.0",
+  "description": "Dadi's Map: a shared drawing map for a grandmother and grandchild",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host",
+    "start": "node server/serve.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "fetch-model": "node scripts/fetch-doodlenet.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mridulan2005-cell/gmomds.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/mridulan2005-cell/gmomds/issues"
+  },
+  "homepage": "https://github.com/mridulan2005-cell/gmomds#readme",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.3.0",
+    "@tensorflow/tfjs": "^4.22.0",
+    "idb-keyval": "^6.3.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "^0.160.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@types/three": "^0.160.0",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  },
+  "private": true,
+  "type": "module"
+}

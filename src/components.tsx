@@ -1,0 +1,85 @@
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { MapScene, type MapConfig, type Pick } from './map/MapScene';
+import { scanUrl } from './lib/store';
+import type { Drawing } from './lib/types';
+import { inkOf } from './lib/content';
+
+export const Arrow = ({ w = 42, h = 28 }: { w?: number; h?: number }) => (
+  <svg width={w} height={h} viewBox="0 0 44 28"><path d="M2 10 H26 V2 L42 14 L26 26 V18 H2 Z" fill="#FFF3D1" /></svg>
+);
+export const Chevron = ({ dir, size = 26 }: { dir: 'l' | 'r'; size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 22 22" fill="none" stroke="#F26A2E" strokeWidth="3.6" strokeLinecap="round" strokeLinejoin="round"><path d={dir === 'l' ? 'M14 4 L7 11 L14 18' : 'M8 4 L15 11 L8 18'} /></svg>
+);
+const TodayIcon = () => <svg width="24" height="24" viewBox="-10 -10 20 20"><path d="M0 -10 Q1.6 -1.6 10 0 Q1.6 1.6 0 10 Q-1.6 1.6 -10 0 Q-1.6 -1.6 0 -10Z" fill="#F26A2E" /></svg>;
+const MapIcon = () => <svg width="28" height="28" viewBox="0 0 24 24" fill="#F26A2E" fillOpacity=".25" stroke="#F26A2E" strokeWidth="2.4" strokeLinejoin="round"><path d="M2 5 L8 3 L16 6 L22 4 L22 19 L16 21 L8 18 L2 20 Z M8 3 L8 18 M16 6 L16 21" /></svg>;
+const BookIcon = () => <svg width="28" height="28" viewBox="0 0 24 24" fill="#F26A2E" fillOpacity=".25" stroke="#F26A2E" strokeWidth="2.4" strokeLinejoin="round"><path d="M12 6 Q7 3 2 4 L2 19 Q7 18 12 21 Q17 18 22 19 L22 4 Q17 3 12 6 Z M12 6 L12 21" /></svg>;
+
+export type Dest = 'home' | 'map' | 'book';
+export function Dock({ items, go }: { items: Dest[]; go: (d: Dest) => void }) {
+  const meta: Record<Dest, [string, ReactNode]> = { home: ["Today's prompt", <TodayIcon />], map: ['Map', <MapIcon />], book: ['Scrapbook', <BookIcon />] };
+  return (
+    <div className="dock">
+      {items.map((d, i) => (
+        <button key={d} className="btn-cream" style={{ rotate: i ? '1deg' : '-1deg' }} onClick={() => go(d)}>{meta[d][1]}{meta[d][0]}</button>
+      ))}
+    </div>
+  );
+}
+
+export function Back({ label, onClick }: { label: string; onClick: () => void }) {
+  return <button className="btn-cream back" onClick={onClick}><Chevron dir="l" size={18} />{label}</button>;
+}
+
+export function Perforation({ color }: { color?: string }) {
+  const style = color ? ({ '--perf': color } as React.CSSProperties) : undefined;
+  return <>{['t', 'b', 'l', 'r'].map(k => <div key={k} className={'perf ' + k} style={style} />)}</>;
+}
+
+/** The traced drawing: puffy regions in their colour, lines in the owner's ink. */
+export function DrawingSvg({ d, size = 190 }: { d: Drawing; size?: number }) {
+  const ink = inkOf(d.personId);
+  return (
+    <svg viewBox="0 0 64 64" width={size} height={size} fill="none" strokeLinecap="round" strokeLinejoin="round" aria-label={d.label}>
+      {d.paths.f.map((p, i) => <path key={'f' + i} d={p} fill={(d.paths.fc && d.paths.fc[i]) || d.fillColor} fillOpacity=".6" stroke={ink} strokeWidth="2.6" />)}
+      {d.paths.s.map((p, i) => <path key={'s' + i} d={p} stroke={ink} strokeWidth="2.6" />)}
+    </svg>
+  );
+}
+
+/** The real paper scan for the scrapbook; falls back to the traced drawing (sample data has no scan). */
+export function ScanPhoto({ d, rot }: { d: Drawing; rot: number }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => { let on = true; scanUrl(d.id).then(u => on && setUrl(u)); return () => { on = false; }; }, [d.id]);
+  return (
+    <div className="photo" style={{ rotate: rot + 'deg', borderBottomColor: inkOf(d.personId) }}>
+      {url ? <img src={url} alt={d.label} /> : <DrawingSvg d={d} size={120} />}
+    </div>
+  );
+}
+
+export function Map3D({ config, onPick, reducedMotion }: { config: MapConfig; onPick?: (p: Pick) => void; reducedMotion: boolean }) {
+  const host = useRef<HTMLDivElement>(null), scene = useRef<MapScene | null>(null), pickRef = useRef(onPick);
+  const [failed, setFailed] = useState(false);
+  pickRef.current = onPick;
+  useEffect(() => {
+    try {
+      const s = new MapScene(host.current!); scene.current = s; s.onPick = p => pickRef.current?.(p);
+    } catch (e) { console.error(e); setFailed(true); }
+    return () => { scene.current?.dispose(); scene.current = null; };
+  }, []);
+  useEffect(() => { const s = scene.current; if (!s) return; s.reducedMotion = reducedMotion; s.setConfig(config); }, [config, reducedMotion]);
+  return <div ref={host} className="map-canvas">{failed && <div className="loading3d">3D isn't available on this device.</div>}</div>;
+}
+
+export const Cloud = ({ style, fill = '#CDEDEA', w = 190 }: { style: React.CSSProperties; fill?: string; w?: number }) => (
+  <svg width={w} height={(w * 70) / 190} viewBox="0 0 190 70" style={{ position: 'absolute', ...style }}><path d="M30 68 Q0 68 4 46 Q8 26 34 30 Q40 6 70 8 Q96 10 104 30 Q124 16 146 28 Q166 22 178 42 Q192 68 160 68 Z" fill={fill} /></svg>
+);
+export const Sun = () => (
+  <svg width="300" height="300" viewBox="-150 -150 300 300" style={{ position: 'absolute', right: -80, top: -90 }}>
+    <g style={{ animation: 'spin 80s linear infinite' }}><path d="M0 -150 L22 -88 L-22 -88 Z M150 0 L88 22 L88 -22 Z M0 150 L-22 88 L22 88 Z M-150 0 L-88 -22 L-88 22 Z M106 -106 L78 -46 L46 -78 Z M106 106 L46 78 L78 46 Z M-106 106 L-78 46 L-46 78 Z M-106 -106 L-46 -78 L-78 -46 Z" fill="#F5A623" /></g>
+    <circle r="80" fill="#FFC93C" />
+  </svg>
+);
+export const Dots = ({ d, stroke, style }: { d: string; stroke: string; style: React.CSSProperties }) => (
+  <svg width="300" height="200" viewBox="0 0 300 200" style={{ position: 'absolute', ...style }} fill="none" stroke={stroke} strokeWidth="7" strokeLinecap="round" strokeDasharray="0 18"><path d={d} /></svg>
+);
