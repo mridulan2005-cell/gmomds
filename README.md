@@ -18,9 +18,10 @@ Other commands: `npm test` (scan pipeline tests), `npm run build`, `npm run prev
 
 ## How a drawing comes to life
 
-1. **Capture** (`src/screens/Scan.tsx`): this is the front camera inside the tray viewfinder ("Switch camera" uses the rear one). When a sheet is found and held still for about 1 second, it is captured automatically. "It's on the tray" captures by hand, and "Use a photo" takes a photo or picks one from the library. "Retake" scans a drawing again, right after scanning or later from today's sketches. Dadi scans first, then the grandchild; the order of scanning decides whose drawing is whose.
+1. **Capture** (`src/screens/Scan.tsx`): this is the front camera inside the tray viewfinder ("Switch camera" uses the rear one). When a sheet is found, no hands are over it, and it is held still for about 1 second, it is captured automatically. Saying "take" (or "click", "snap", "cheese") captures it too, where the browser offers speech recognition. "It's on the tray" captures by hand, and "Use a photo" takes a photo or picks one from the library. "Retake" scans a drawing again, right after scanning or later from today's sketches. Dadi scans first, then the grandchild; the order of scanning decides whose drawing is whose.
 2. **Clean-up** (`src/scan/pipeline.ts`, in a Web Worker):
-   - Finds the paper as the largest bright four-sided region and corrects the perspective.
+   - Finds the sheet: the bright, colourless region nearest the middle (after removing the colour of the light). Skin is never paper, so hands, a lap or a busy table are left out, and a hand over a corner does not cut it off (the four sides are extended to meet). Then it corrects the perspective.
+   - Keeps only what is on the sheet: hands (and their shadows) reaching in from the edge, and anything else coming from outside the sheet, are removed, even where a finger touches the drawing. The scrapbook photo shows only the sheet.
    - Estimates the paper's brightness, so shadows don't count as ink.
    - Picks out pencil and pen lines and crayon colour, then removes specks and crops.
    - Says "Try again" if the page is empty or the photo is blurry.

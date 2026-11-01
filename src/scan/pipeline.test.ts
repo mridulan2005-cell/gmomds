@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectPaper, processScan, type Img, type Pt } from './pipeline';
+import { detectPaper, detectSheet, processScan, type Img, type Pt } from './pipeline';
 
 // A tiny rasteriser for synthetic "photos".
 function canvas(w: number, h: number, rgb: [number, number, number]): Img {
@@ -111,6 +111,48 @@ describe('scan pipeline', () => {
     const img = canvas(400, 300, [0, 0, 0]);
     for (let y = 0; y < 300; y++) for (let x = 0; x < 400; x++) img.data.set([(x * 7) % 200, (y * 5) % 160, ((x + y) * 3) % 120], (y * 400 + x) * 4);
     expect(processScan(img)).toMatchObject({ ok: false });
+  });
+
+  // A real scan: hands holding the sheet, one finger touching the drawing, things on the table, warm light.
+  function busyPhoto(skin: [number, number, number]) {
+    const img = canvas(640, 480, [150, 120, 95]); // table
+    fillPoly(img, [[20, 20], [110, 20], [110, 90], [20, 90]], [235, 235, 230]); // a white box on the table
+    fillPoly(img, ellipse(600, 420, 40, 40), [40, 90, 200]); // a blue cup
+    stroke(img, [[560, 30], [630, 60]], 6, [30, 30, 30]); // a pen
+    fillPoly(img, [[150, 60], [500, 80], [520, 430], [130, 410]], [250, 238, 215]); // paper under warm light
+    stroke(img, ellipse(320, 230, 90, 60), 2.5, [40, 40, 60]); // the bird
+    stroke(img, [[300, 290], [290, 340]], 2.5, [40, 40, 60]);
+    stroke(img, [[340, 290], [350, 340]], 2.5, [40, 40, 60]);
+    // a hand over the bottom-left corner, reaching in from the edge of the view
+    fillPoly(img, [[0, 480], [0, 380], [120, 340], [200, 380], [210, 420], [160, 480]], skin);
+    stroke(img, [[150, 360], [230, 300]], 14, skin); // a finger
+    // another hand holding the right edge, its finger touching the bird's body
+    fillPoly(img, [[640, 200], [640, 300], [470, 280], [450, 250], [480, 220]], skin);
+    stroke(img, [[480, 240], [422, 232]], 10, skin); // (a finger hiding part of a line hides it from the camera too)
+    return img;
+  }
+  for (const [name, skin] of [['light', [226, 178, 150]], ['dark', [120, 75, 45]]] as [string, [number, number, number]][]) {
+    it(`ignores ${name} hands and the table, keeps the drawing`, () => {
+      const img = busyPhoto(skin);
+      const q = detectPaper(img);
+      expect(q).not.toBeNull();
+      [[150, 60], [500, 80], [520, 430], [130, 410]].forEach((c, i) => expect(Math.hypot(q![i][0] - c[0], q![i][1] - c[1])).toBeLessThan(24)); // even the covered corner
+      expect(detectSheet(img).hands).toBe(true);
+      const r = processScan(img);
+      expect(r.ok).toBe(true);
+      // nothing of the hands: the crop holds the bird (about 190 × 130 on the sheet), not the hands reaching in
+      const sx = r.crop!.width, sy = r.crop!.height;
+      expect(sx).toBeLessThan(290); expect(sy).toBeLessThan(230);
+      expect(r.vector!.f.length).toBe(1); // the bird's body
+      // no skin colour in the drawing's ink
+      const ink = r.ink!.data; let skinPx = 0, inkPx = 0;
+      for (let i = 0; i < ink.length; i += 4) if (ink[i + 3]) { inkPx++; if (ink[i] > ink[i + 2] + 40) skinPx++; }
+      expect(skinPx / inkPx).toBeLessThan(0.05);
+    });
+  }
+
+  it('sees no hands when the sheet is clear', () => {
+    expect(detectSheet(photo().img).hands).toBe(false);
   });
 
   it('works when the paper fills the whole view', () => {

@@ -1,5 +1,5 @@
 // Main-thread side of scanning: camera frames → worker → JPEG + vector + recognition.
-import type { Img, Quad, ScanResult, Vector } from './pipeline';
+import type { Img, ScanResult, Sheet, Vector } from './pipeline';
 import type { Recognition } from '../lib/types';
 import { localGuess } from '../lib/content';
 import { motionFor, prettyLabel } from '../lib/motionRules';
@@ -19,7 +19,8 @@ function call(op: 'detect' | 'process', img: Img): Promise<any> {
   return new Promise(res => { waiting.set(id, res); getWorker().postMessage({ id, op, img: { width: img.width, height: img.height, buf } }, [buf]); });
 }
 
-export async function detect(img: Img): Promise<Quad | null> { const r = await call('detect', img); return r.quad || null; }
+/** The sheet's corners, and whether hands are over it (then it is not time to take the photo yet). */
+export async function detect(img: Img): Promise<Sheet> { const r = await call('detect', img); return r.sheet || { quad: null, hands: false }; }
 export async function process(img: Img): Promise<ScanResult> {
   const r = await call('process', img);
   if (r.error) throw new Error(r.error);

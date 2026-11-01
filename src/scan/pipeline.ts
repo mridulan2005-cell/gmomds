@@ -152,6 +152,38 @@ function toQuad(h: Pt[]): Pt[] {
   }
   return p;
 }
+/**
+ * Four corners from the sheet's four straight sides, extended to meet. A hand over a corner cuts it off the
+ * outline; the sides still point to where the hidden corner is. Falls back to toQuad when the sides are unclear.
+ */
+function sidesQuad(h: Pt[]): Pt[] {
+  const n = h.length, ang = (a: Pt, b: Pt) => Math.atan2(b[1] - a[1], b[0] - a[0]);
+  const turn = (a: number, b: number) => { let d = Math.abs(a - b) % (2 * Math.PI); return d > Math.PI ? 2 * Math.PI - d : d; };
+  // merge runs of nearly straight hull edges into sides
+  const sides: { a: Pt; b: Pt; len: number; at: number }[] = [];
+  let start = 0; for (let i = 1; i < n; i++) if (turn(ang(h[i - 1], h[i]), ang(h[i], h[(i + 1) % n])) > 0.35) { start = i; break; }
+  let a = h[start], dir = ang(h[start], h[(start + 1) % n]);
+  for (let k = 1; k <= n; k++) {
+    const p = h[(start + k) % n], q = h[(start + k + 1) % n];
+    if (k === n || turn(dir, ang(p, q)) > 0.35) { sides.push({ a, b: p, len: Math.hypot(p[0] - a[0], p[1] - a[1]), at: k }); a = p; dir = ang(p, q); }
+  }
+  if (sides.length < 4) return toQuad(h);
+  const four = sides.slice().sort((x, y) => y.len - x.len).slice(0, 4).sort((x, y) => x.at - y.at);
+  const meet = (s: typeof four[0], t: typeof four[0]): Pt | null => {
+    const [x1, y1] = s.a, [x2, y2] = s.b, [x3, y3] = t.a, [x4, y4] = t.b, d = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+    if (Math.abs(d) < 1e-6) return null;
+    const u = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / d;
+    return [x1 + u * (x2 - x1), y1 + u * (y2 - y1)];
+  };
+  const q = four.map((s, i) => meet(four[(i + 3) % 4], s));
+  if (q.some(p => !p)) return toQuad(h);
+  const qa = polyArea(q as Pt[]), ha = polyArea(h);
+  // the four longest sides must carry most of the outline, and the corners must not fly off
+  const share = four.reduce((t, s) => t + s.len, 0) / sides.reduce((t, s) => t + s.len, 0);
+  if (share < 0.75 || qa < ha * 0.95 || qa > ha * 1.35) return toQuad(h);
+  return q as Pt[];
+}
+
 function orderQuad(p: Pt[]): Quad {
   const cx = p.reduce((s, q) => s + q[0], 0) / 4, cy = p.reduce((s, q) => s + q[1], 0) / 4;
   const s = p.slice().sort((a, b) => Math.atan2(a[1] - cy, a[0] - cx) - Math.atan2(b[1] - cy, b[0] - cx)); // clockwise in image coords
@@ -159,35 +191,147 @@ function orderQuad(p: Pt[]): Quad {
   return [s[k], s[(k + 1) % 4], s[(k + 2) % 4], s[(k + 3) % 4]] as Quad;
 }
 
-/**
- * Find the sheet of paper: the largest bright region, reduced to four corners.
- * Returns null when no clear sheet is found (for example when the paper fills the whole view).
- */
-export function detectPaper(img: Img): Quad | null {
-  const small = resize(img, 200), w = small.width, h = small.height;
-  const g = boxBlur(toGray(small), w, h, 1), t = otsu(g);
-  let m: Uint8Array = new Uint8Array(w * h);
-  for (let i = 0; i < g.length; i++) m[i] = g[i] > Math.max(t, 0.35) ? 1 : 0;
-  m = erode(dilate(m, w, h, 2), w, h, 2); // close over ink lines
-  m = dilate(erode(m, w, h, 1), w, h, 1); // open away thin bright noise
-  const { lab, sizes } = label(m, w, h, false);
-  let best = 0; for (let i = 1; i < sizes.length; i++) if (sizes[i] > sizes[best] || !best) best = i;
-  if (!best || sizes[best] < w * h * 0.12) return null;
-  // If the region hugs most of the frame border, the paper fills the view: no outline to find.
-  let border = 0, perim = 0;
-  const onB = (x: number, y: number) => { perim++; if (lab[y * w + x] === best) border++; };
-  for (let x = 0; x < w; x++) { onB(x, 0); onB(x, h - 1); } for (let y = 1; y < h - 1; y++) { onB(0, y); onB(w - 1, y); }
-  if (border / perim > 0.6) return null;
+// What is paper and what is not. Old hands and small hands hold the sheet, and the table, the floor or a lap
+// is in view too: only the sheet (and what is drawn on it) may become part of the drawing.
+
+/** Per-channel white level (95th percentile), to divide out the colour of the light. */
+function whiteLevel(img: Img): [number, number, number] {
+  const out: number[] = [];
+  for (let c = 0; c < 3; c++) { const v: number[] = []; for (let j = c; j < img.data.length; j += 4 * 5) v.push(img.data[j]); v.sort((a, b) => a - b); out.push(Math.max(40, v[Math.floor(v.length * 0.95)] || 255)); }
+  return out as [number, number, number];
+}
+/** Skin, on white-balanced colour. Two common rules (RGB and YCbCr), so light and dark skin both count. */
+function skinAt(r: number, g: number, b: number): boolean {
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+  if (r > 95 && g > 40 && b > 20 && mx - mn > 15 && r - g > 15 && r > b) return true;
+  const y = 0.299 * r + 0.587 * g + 0.114 * b, cr = 128 + 0.5 * r - 0.4187 * g - 0.0813 * b, cb = 128 - 0.1687 * r - 0.3313 * g + 0.5 * b;
+  return y > 35 && cr >= 135 && cr <= 180 && cb >= 85 && cb <= 135 && r > b;
+}
+interface Classes { w: number; h: number; paper: Uint8Array; skin: Uint8Array; grey: Uint8Array }
+/** Per pixel: paper (bright and colourless once the light's colour is removed, not skin), skin, and soft grey (shadows). */
+function classify(img: Img): Classes {
+  const { width: w, height: h, data } = img, wl = whiteLevel(img), n = w * h;
+  const g = new Float32Array(n), sat = new Float32Array(n), skin = new Uint8Array(n);
+  for (let i = 0, j = 0; i < n; i++, j += 4) {
+    const r = Math.min(255, (data[j] * 255) / wl[0]), gg = Math.min(255, (data[j + 1] * 255) / wl[1]), b = Math.min(255, (data[j + 2] * 255) / wl[2]);
+    const mx = Math.max(r, gg, b), mn = Math.min(r, gg, b);
+    g[i] = (0.299 * r + 0.587 * gg + 0.114 * b) / 255; sat[i] = mx ? (mx - mn) / mx : 0; skin[i] = skinAt(r, gg, b) ? 1 : 0;
+  }
+  const t = Math.max(otsu(g), 0.5), paper = new Uint8Array(n), grey = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    paper[i] = g[i] > t && sat[i] < 0.22 && !skin[i] ? 1 : 0;
+    grey[i] = !paper[i] && !skin[i] && sat[i] < 0.25 && g[i] > 0.3 ? 1 : 0;
+  }
+  return { w, h, paper, skin, grey };
+}
+
+/** The sheet: the bright, colourless region that is biggest and nearest the middle of the view. */
+function sheet(c: Classes): { m: Uint8Array; size: number } | null {
+  const { w, h } = c;
+  let m = erode(dilate(c.paper, w, h, 2), w, h, 2); // close over pencil lines
+  m = dilate(erode(m, w, h, 1), w, h, 1); // open away thin bright bits
+  const { lab, sizes } = label(m, w, h, false), score = new Float64Array(sizes.length);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const l = lab[y * w + x]; if (!l) continue;
+    score[l] += 1 - Math.min(0.9, Math.hypot((x + 0.5) / w - 0.5, (y + 0.5) / h - 0.5) * 1.4);
+  }
+  let best = 0; for (let l = 1; l < sizes.length; l++) if (score[l] > score[best]) best = l;
+  if (!best || sizes[best] < w * h * 0.08) return null;
+  const o = new Uint8Array(w * h); for (let i = 0; i < o.length; i++) if (lab[i] === best) o[i] = 1;
+  return { m: o, size: sizes[best] };
+}
+
+function outline(m: Uint8Array, w: number, h: number): Pt[] {
   const pts: Pt[] = [];
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const i = y * w + x; if (lab[i] !== best) continue;
-    if (x === 0 || y === 0 || x === w - 1 || y === h - 1 || lab[i - 1] !== best || lab[i + 1] !== best || lab[i - w] !== best || lab[i + w] !== best) pts.push([x + 0.5, y + 0.5]);
+    const i = y * w + x; if (!m[i]) continue;
+    if (x === 0 || y === 0 || x === w - 1 || y === h - 1 || !m[i - 1] || !m[i + 1] || !m[i - w] || !m[i + w]) pts.push([x + 0.5, y + 0.5]);
   }
-  const hp = hull(pts); if (hp.length < 4) return null;
-  const q = toQuad(hp), qa = polyArea(q);
-  if (qa < w * h * 0.12 || qa < polyArea(hp) * 0.85) return null; // not four-sided enough
-  const sx = img.width / w, sy = img.height / h;
-  return orderQuad(q.map(([x, y]) => [x * sx, y * sy] as Pt));
+  return pts;
+}
+
+function touchesBorder(lab: Int32Array, w: number, h: number): Set<number> {
+  const s = new Set<number>();
+  for (let x = 0; x < w; x++) { s.add(lab[x]); s.add(lab[(h - 1) * w + x]); }
+  for (let y = 0; y < h; y++) { s.add(lab[y * w]); s.add(lab[y * w + w - 1]); }
+  s.delete(0); return s;
+}
+
+export interface Sheet { quad: Quad | null; hands: boolean }
+
+/**
+ * Find the sheet of paper (four corners) and whether hands are over it. Hands, a lap or a busy table are not paper,
+ * and a hand over a corner does not cut the corner off (the corners come from the sheet's convex outline).
+ * quad is null when no clear sheet is found, for example when the paper fills the whole view.
+ */
+export function detectSheet(img: Img): Sheet {
+  const small = resize(img, 240), c = classify(small), { w, h } = c, s = sheet(c);
+  let quad: Quad | null = null, poly: Pt[] | null = null;
+  if (s) {
+    // if the sheet hugs most of the frame border, the paper fills the view: no outline to find
+    let border = 0, perim = 0;
+    const onB = (x: number, y: number) => { perim++; if (s.m[y * w + x]) border++; };
+    for (let x = 0; x < w; x++) { onB(x, 0); onB(x, h - 1); } for (let y = 1; y < h - 1; y++) { onB(0, y); onB(w - 1, y); }
+    const hp = border / perim > 0.6 ? [] : hull(outline(s.m, w, h));
+    if (hp.length >= 4) {
+      const q = sidesQuad(hp), qa = polyArea(q);
+      if (qa >= w * h * 0.1 && qa >= polyArea(hp) * 0.85) { poly = q; const sx = img.width / w, sy = img.height / h; quad = orderQuad(q.map(([x, y]) => [x * sx, y * sy] as Pt)); }
+    }
+  }
+  // hands: skin that reaches in over the sheet from outside it
+  const inner: Pt[] = poly
+    ? (() => { const cx = poly.reduce((a, p) => a + p[0], 0) / 4, cy = poly.reduce((a, p) => a + p[1], 0) / 4; return poly.map(([x, y]) => [cx + (x - cx) * 0.88, cy + (y - cy) * 0.88] as Pt); })()
+    : [[w * 0.12, h * 0.12], [w * 0.88, h * 0.12], [w * 0.88, h * 0.88], [w * 0.12, h * 0.88]];
+  const sk = label(c.skin, w, h), edge = touchesBorder(sk.lab, w, h), inside = new Float64Array(sk.sizes.length), outsideN = new Float64Array(sk.sizes.length);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const l = sk.lab[y * w + x]; if (!l || sk.sizes[l] < w * h * 0.004) continue;
+    if (pointInPoly(x + 0.5, y + 0.5, inner)) inside[l]++; else outsideN[l]++;
+  }
+  const innerArea = polyArea(inner); let hands = false;
+  for (let l = 1; l < sk.sizes.length; l++) if (inside[l] > innerArea * 0.004 && (edge.has(l) || outsideN[l] > 0)) hands = true;
+  return { quad, hands };
+}
+
+/** Find the sheet of paper: four corners, or null when no clear sheet is found. */
+export function detectPaper(img: Img): Quad | null { return detectSheet(img).quad; }
+
+/**
+ * Where a drawing can be: the sheet and the marks on it. Hands (skin, and the shadows they cast, reaching in
+ * from the edge), the background, and anything else that reaches in from outside the sheet are left out.
+ * Returns a mask the size of img.
+ */
+export function drawingArea(img: Img): Uint8Array {
+  const small = resize(img, 320), c = classify(small), { w, h } = c, s = sheet(c), W = img.width, H = img.height;
+  const area = new Uint8Array(W * H);
+  if (!s) { area.fill(1); return area; }
+  const P = s.m, hp = hull(outline(P, w, h));
+  const inHull = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) inHull[y * w + x] = hp.length >= 3 && pointInPoly(x + 0.5, y + 0.5, hp) ? 1 : 0;
+  const shadow = dilate(erode(c.grey, w, h, 2), w, h, 2); // thick soft grey, not thin pencil lines
+  // flood in from the edge of the view: anything outside the sheet, and over the sheet only hands and their shadows
+  const out = new Uint8Array(w * h), pass = (i: number) => !P[i] && (!inHull[i] || c.skin[i] || shadow[i]), st: number[] = [];
+  const seed = (i: number) => { if (!out[i] && pass(i)) { out[i] = 1; st.push(i); } };
+  for (let x = 0; x < w; x++) { seed(x); seed((h - 1) * w + x); } for (let y = 0; y < h; y++) { seed(y * w); seed(y * w + w - 1); }
+  while (st.length) {
+    const i = st.pop()!, x = i % w, y = (i - x) / w;
+    if (x > 0) seed(i - 1); if (x < w - 1) seed(i + 1); if (y > 0) seed(i - w); if (y < h - 1) seed(i + w);
+  }
+  const gone = dilate(out, w, h, 2);
+  // what is left that is not the sheet: marks on it. Those still reaching the edge of the view (a sleeve, the table)
+  // go, and so do bits surrounded by a hand rather than by paper (a fingernail, a crease).
+  const rest = new Uint8Array(w * h); for (let i = 0; i < rest.length; i++) rest[i] = !P[i] && !gone[i] ? 1 : 0;
+  const rl = label(rest, w, h), edge = touchesBorder(rl.lab, w, h), byHand = new Float64Array(rl.sizes.length), byPaper = new Float64Array(rl.sizes.length);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const l = rl.lab[y * w + x]; if (!l) continue;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue; const j = ny * w + nx;
+      if (gone[j]) byHand[l]++; else if (P[j]) byPaper[l]++;
+    }
+  }
+  const ok = new Uint8Array(w * h);
+  for (let i = 0; i < ok.length; i++) { const l = rl.lab[i]; ok[i] = !gone[i] && (P[i] || (l && !edge.has(l) && byPaper[l] >= byHand[l])) ? 1 : 0; }
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) area[y * W + x] = ok[Math.min(h - 1, Math.floor((y * h) / H)) * w + Math.min(w - 1, Math.floor((x * w) / W))];
+  return area;
 }
 
 // ---------- 2. perspective correction ----------
@@ -610,6 +754,9 @@ export function processScan(photo: Img, opts: { minSharpness?: number } = {}): S
   const paper = quad ? warp(src, quad, 1000) : resize(src, 1000);
   const w = paper.width, h = paper.height;
   let m: Uint8Array = inkMask(paper);
+  // only marks on the sheet: hands, their shadows and the background are not part of the drawing
+  const area = drawingArea(paper);
+  for (let i = 0; i < m.length; i++) if (!area[i]) m[i] = 0;
   m = despeckle(m, w, h, Math.max(6, Math.round(w * h * 0.00004)));
   // a photo of a room or a face is mostly "ink"; a drawing on paper is mostly paper
   if (m.reduce((a, v) => a + v, 0) > w * h * 0.55) return { ok: false, error: 'not-drawing', quad };
@@ -623,6 +770,9 @@ export function processScan(photo: Img, opts: { minSharpness?: number } = {}): S
   const x0 = Math.max(0, bb.x0 - pad), y0 = Math.max(0, bb.y0 - pad), x1 = Math.min(w - 1, bb.x1 + pad), y1 = Math.min(h - 1, bb.y1 + pad);
   const cw = x1 - x0 + 1, ch = y1 - y0 + 1;
   const crop = cropImg(paper, x0, y0, cw, ch);
+  // the photo kept for the scrapbook (and shown to Claude) is the sheet only: a hand or the table at its edge becomes paper
+  const pw = whiteLevel(paper);
+  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) if (!area[(y0 + y) * w + x0 + x]) crop.data.set(pw, (y * cw + x) * 4);
   const cm = new Uint8Array(cw * ch); for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) cm[y * cw + x] = m[(y0 + y) * w + x0 + x];
   const ink: Img = { width: cw, height: ch, data: new Uint8ClampedArray(cw * ch * 4) };
   for (let i = 0; i < cm.length; i++) if (cm[i]) { ink.data.set(crop.data.subarray(i * 4, i * 4 + 3), i * 4); ink.data[i * 4 + 3] = 255; }

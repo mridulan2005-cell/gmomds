@@ -11,6 +11,7 @@ import type { Img, Quad, ScanError } from '../scan/pipeline';
 type Phase = 'starting' | 'camera' | 'nocam' | 'processing' | 'scanning' | 'done' | 'error';
 let lastCapture: Float32Array | null = null; // so the grandchild's turn doesn't re-scan Dadi's sheet
 let preferFront = true; // the front camera by default; "Switch camera" flips it
+const TAKE = /\b(take|take it|click|snap|cheese)\b|टेक|ले लो|खींचो/; // spoken words that take the photo
 
 /** `replace`: a retake of a drawing already scanned (from today's sketches); the new scan takes its place. */
 export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; replace?: string }) {
@@ -23,6 +24,7 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
   const [cropUrl, setCropUrl] = useState<string | null>(null);
   const [drawingId, setDrawingId] = useState<string | null>(null);
   const [fixing, setFixing] = useState(false);
+  const [hands, setHands] = useState(false), [listening, setListening] = useState(false);
   const video = useRef<HTMLVideoElement>(null), stream = useRef<MediaStream | null>(null), fileIn = useRef<HTMLInputElement>(null);
   const phaseRef = useRef(phase); phaseRef.current = phase;
   const hist = useRef<Quad[]>([]), busy = useRef(false), alive = useRef(true);
@@ -59,21 +61,50 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
       const f = grab(video.current, 320); if (!f) return;
       busy.current = true;
       const th = thumb(f), w = f.width, h = f.height;
-      const q = await detect(f).catch(() => null);
+      const sh = await detect(f).catch(() => null), q = sh?.quad || null;
       busy.current = false;
       if (phaseRef.current !== 'camera') return;
-      setQuad(q ? { q, w, h } : null);
-      if (!q) { hist.current = []; setSteady(0); return; }
+      setQuad(q ? { q, w, h } : null); setHands(!!sh?.hands);
+      // wait for the hands to move away before taking the photo by itself
+      if (!q || sh?.hands) { hist.current = []; setSteady(0); return; }
       const H = hist.current; H.push(q); if (H.length > 4) H.shift();
       const diag = Math.hypot(w, h), moved = H.length > 1 ? Math.max(...H.slice(1).map((p, i) => Math.max(...p.map((c, k) => Math.hypot(c[0] - H[i][k][0], c[1] - H[i][k][1]))))) : 1e9;
       const isNew = !lastCapture || thumbDiff(th, lastCapture) > 0.045;
       const n = moved < diag * 0.02 && isNew ? H.length : 0; setSteady(n);
-      if (n >= 4) void capture('camera');
+      if (n >= 4) void captureRef.current('camera');
     }, 280);
     return () => clearInterval(t);
   }, []);
 
-  const capture = async (from: 'camera' | Img) => {
+  // voice: say "take" once the drawing is in the frame
+  useEffect(() => {
+    const w = window as any, SR = w.SpeechRecognition || w.webkitSpeechRecognition;
+    if (!SR) return;
+    let stopped = false, rec: any = null, retry = 0;
+    const onGesture = () => { window.removeEventListener('pointerdown', onGesture); start(); };
+    const start = () => {
+      if (stopped || rec) return;
+      rec = new SR(); rec.continuous = true; rec.interimResults = true; rec.lang = navigator.language || 'en-US';
+      rec.onresult = (e: any) => {
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          if (!TAKE.test(String(e.results[i][0]?.transcript || '').toLowerCase()) || phaseRef.current !== 'camera') continue;
+          void captureRef.current('camera'); try { rec.abort(); } catch { /* restarts on end */ } return;
+        }
+      };
+      rec.onstart = () => setListening(true);
+      rec.onerror = (e: any) => {
+        // some browsers only let the microphone start after a tap
+        if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { stopped = !!retry; retry++; window.addEventListener('pointerdown', onGesture); }
+      };
+      rec.onend = () => { rec = null; setListening(false); if (!stopped) setTimeout(start, 400); };
+      try { rec.start(); } catch { rec = null; }
+    };
+    start();
+    return () => { stopped = true; window.removeEventListener('pointerdown', onGesture); try { rec?.abort(); } catch { /* already stopped */ } };
+  }, []);
+
+  const captureRef = useRef<(from: 'camera' | Img) => Promise<void>>(async () => {});
+  const capture = captureRef.current = async (from: 'camera' | Img) => {
     if (phaseRef.current === 'processing' || phaseRef.current === 'scanning') return;
     const frame = from === 'camera' ? (video.current ? grab(video.current, 1600) : null) : from;
     if (!frame) return;
@@ -136,7 +167,8 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
                 <polygon points={quad.q.map(p => `${p[0]},${p[1]}`).join(' ')} fill="rgba(255,201,60,.18)" stroke="#FFC93C" strokeWidth={quad.w / 90} strokeLinejoin="round" />
               </svg>
             )}
-            {live && <div className="hold">{phase === 'starting' ? 'Opening the camera…' : quad ? (steady >= 2 ? 'Hold still…' : 'Found the paper') : 'Paper goes here'}</div>}
+            {live && <div className="hold">{phase === 'starting' ? 'Opening the camera…' : hands ? 'Hands away from the paper' : quad ? (steady >= 2 ? 'Hold still…' : 'Found the paper') : 'Paper goes here'}</div>}
+            {live && listening && <div className="say-take">🎤 Say “take”</div>}
             {phase === 'nocam' && <div className="paper-slot">Paper goes here</div>}
             {(phase === 'processing' || phase === 'error') && still && <img className="still" src={still} alt="" style={{ objectFit: 'cover', opacity: phase === 'error' ? 0.45 : 1 }} />}
             {(phase === 'scanning' || phase === 'done') && cropUrl && (
