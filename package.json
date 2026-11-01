@@ -24,6 +24,7 @@
   "homepage": "https://github.com/mridulan2005-cell/gmomds#readme",
   "dependencies": {
     "@anthropic-ai/sdk": "^1.3.0",
+    "@huggingface/transformers": "^3.8.1",
     "@tensorflow/tfjs": "^4.22.0",
     "idb-keyval": "^6.3.0",
     "react": "^18.3.1",

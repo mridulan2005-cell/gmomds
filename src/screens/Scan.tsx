@@ -5,6 +5,7 @@ import { DADI, CHILD, QUICK_PICKS, fillFor, guessFor } from '../lib/content';
 import { addDrawing, getState, replaceDrawing, saveScan, uid, updateDrawing, useApp } from '../lib/store';
 import type { Drawing, Guess } from '../lib/types';
 import { detect, grab, process, recognise, thumb, thumbDiff, toBlob, toCanvas } from '../scan/scanner';
+import { warmClip } from '../scan/clip';
 import { warmDoodle } from '../scan/doodle';
 import type { Img, Quad, ScanError } from '../scan/pipeline';
 
@@ -55,7 +56,11 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
       setPhase('camera'); setErr(null);
     } catch { setErr('camera'); setPhase('nocam'); }
   }, []);
-  useEffect(() => { warmDoodle(); }, []);
+  useEffect(() => {
+    warmDoodle();
+    // without Claude on the server, the free on-device recogniser does the naming: start fetching it now
+    fetch('/api/health').then(r => r.json()).then(h => { if (!h?.ai) warmClip(getState().prompt?.text || ''); }).catch(() => warmClip(getState().prompt?.text || ''));
+  }, []);
   useEffect(() => { alive.current = true; void startCamera(); return () => { alive.current = false; stopCamera(); }; }, [startCamera]);
 
   // auto-capture: a sheet is found and held still for about a second
@@ -138,6 +143,7 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
       if (old) replaceDrawing(old.id, d); else addDrawing(d);
       replacing.current = id; // a further retake replaces this one
       setDrawingId(id); setPhase('done'); stopCamera();
+      if (rec.source === 'local' && rec.confidence < 0.5) setFixing(true); // not sure: ask which it is, best guesses first
     } catch (e) { console.error(e); setErr('failed'); setPhase('error'); }
   };
 
@@ -227,8 +233,8 @@ function FixSheet({ d, onPick, close }: { d: Drawing; onPick: (g: Guess) => void
   return (
     <div className="sheet-bg" onClick={close}>
       <div className="sheet" onClick={e => e.stopPropagation()}>
-        <h2>What did you draw?</h2>
-        <p>Tap the right one, and it will move the right way on the map.</p>
+        <h2>{d.source === 'local' && d.confidence < 0.5 ? `Is it ${d.label}?` : 'What did you draw?'}</h2>
+        <p>{d.source === 'local' && d.confidence < 0.5 ? 'Or tap the right one, and it will move the right way on the map.' : 'Tap the right one, and it will move the right way on the map.'}</p>
         <div className="chips">{opts.map(g => <button key={g.kind} onClick={() => onPick(g)}>{g.label.replace(/^(a|an|the) /, '')}</button>)}</div>
         <div className="row">
           Something else: <input value={typed} onChange={e => setTyped(e.target.value)} placeholder="e.g. rabbit" />

@@ -4,6 +4,8 @@ import type { Recognition } from '../lib/types';
 import { localGuess } from '../lib/content';
 import { motionFor, prettyLabel } from '../lib/motionRules';
 import { classifyDoodle } from './doodle';
+import { classifyClip } from './clip';
+import { SAME_AS } from '../lib/likely';
 
 let worker: Worker | null = null, seq = 0;
 const waiting = new Map<number, (v: any) => void>();
@@ -50,8 +52,9 @@ export const toBlob = (c: HTMLCanvasElement, type = 'image/jpeg', q = 0.86) => n
 /**
  * What is it? Works for any drawing:
  *  1. Claude vision (through our server): open-ended, names anything and picks how it should move.
- *  2. DoodleNet on the tablet (Quick, Draw! dataset, 345 everyday things) when Claude can't be reached.
- *  3. The day's prompt words, as a last resort.
+ *  2. CLIP on the tablet (free, no key): the drawing against what people draw for the day's prompt and everyday things.
+ *  3. DoodleNet on the tablet (Quick, Draw! dataset, 345 everyday things) when CLIP can't run.
+ *  4. The day's prompt words, as a last resort.
  */
 export async function recognise(crop: Img, prompt: string, who: 'dadi' | 'child', vector?: Vector): Promise<Recognition> {
   try {
@@ -59,6 +62,19 @@ export async function recognise(crop: Img, prompt: string, who: 'dadi' | 'child'
     const r = await fetch('/api/recognise', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ image, mediaType: 'image/jpeg', prompt, who }), signal: AbortSignal.timeout(25000) });
     if (r.ok) { const j = await r.json(); if (j && j.kind) return { ...j, source: 'claude' }; }
   } catch { /* offline or no key */ }
+  try {
+    const top = await classifyClip(crop, prompt);
+    if (top && top.length) {
+      const seen = new Set<string>(), guesses = [];
+      for (const t of top) {
+        const kind = (SAME_AS[t.label] || t.label).replace(/\s+/g, '_'); if (seen.has(kind)) continue; seen.add(kind);
+        const { motion, place } = motionFor(kind); guesses.push({ kind, label: prettyLabel(t.label), motion, place });
+        if (guesses.length === 6) break;
+      }
+      const confidence = top[0].score;
+      return { ...guesses[0], motion: confidence < 0.15 ? 'breathe' : guesses[0].motion, confidence, alternatives: guesses.slice(1), source: 'local' };
+    }
+  } catch (e) { console.warn('on-device recognition failed', e); }
   const fromPrompt = localGuess(prompt);
   if (vector) {
     try {
