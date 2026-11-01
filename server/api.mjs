@@ -24,8 +24,11 @@ const Guess = z.object({
   motion: z.enum(MOTIONS),
   place: z.enum(PLACES),
 });
-const Recognition = Guess.extend({
-  is_drawing: z.boolean().describe('true when the image shows a hand drawing on paper. false for anything else: a photo of a face, a room, a hand, a toy, a printed picture or a screen.'),
+const Recognition = z.object({
+  // asked first, so the answer is read against what the prompt would bring out
+  likely_for_prompt: z.array(z.string()).describe('Before looking closely: 6 to 10 things a grandmother or a small child would most likely draw for the prompt of the day, most likely first, as single nouns.'),
+  ...Guess.shape,
+  is_drawing: z.boolean().describe('true when there is anything drawn or written by hand: a picture, a scribble, writing, a faint pencil sketch, even a small or unfinished one. false only when there is clearly no hand-made mark at all: a photo of a face, a room or an object, or a screen.'),
   confidence: z.number().describe('0 to 1. How sure you are about kind.'),
   alternatives: z.array(Guess).describe('Up to 3 other things it could be, most likely first.'),
 });
@@ -50,8 +53,13 @@ Pick a motion that will bring it to life on a small floating island:
 - breathe: buildings, food, cups, objects that just sit there, or when you are unsure
 - none: only if nothing else fits
 place: "sky" for things that are up high (birds, sun, moon, kites, clouds, planes, stars), "water" for things in water (fish, boats, waves), otherwise "ground".
-Only drawings belong on the map. If the image is not a hand drawing on paper (a photo of a person, a room, an object, a printed picture, a screen), set is_drawing to false.
-If you really cannot tell, use your best guess from the prompt, set confidence low, and use motion "breathe".`;
+Only drawings belong on the map, but be generous: these are drawings by young children and grandparents, often faint, scribbly, unfinished, with writing on them, photographed with hands or a table at the edges. Any hand-made mark counts as a drawing. Set is_drawing to false only when there is clearly nothing drawn or written by hand (a photo of a person, a room, an object, a screen).
+How to decide:
+1. First list what people typically draw for today's prompt (likely_for_prompt). "Draw something that makes a splash" brings fish, frogs, ducks, rain, a stone, a child in a puddle, a whale; "Draw your favourite fruit" brings mango, apple, banana, watermelon.
+2. Then look at the drawing's shapes and match them against that list: a circle with a tail drawn for the splash prompt is a fish, not a balloon. Prefer an answer from the list unless the drawing clearly shows something else.
+3. Only when the drawing is clearly something not on the list, say what it is.
+4. Put the next best answers in alternatives, from the list where they fit, so the family can tap the right one.
+Never give up: if you really cannot tell, pick the most likely thing on the list, set confidence low, and use motion "breathe".`;
 
 /**
  * @param {{ image: string, mediaType?: string, prompt: string, who?: string }} body
@@ -77,7 +85,7 @@ export async function recognise(body) {
       }],
     });
     if (res.stop_reason === 'refusal' || !res.parsed_output) return { status: 502, json: { error: 'no_answer' } };
-    const { is_drawing, ...out } = res.parsed_output;
+    const { is_drawing, likely_for_prompt, ...out } = res.parsed_output;
     if (is_drawing === false) return { status: 200, json: { ...out, notDrawing: true } };
     out.kind = out.kind.toLowerCase().trim().split(/\s+/).pop() || 'thing';
     out.confidence = Math.max(0, Math.min(1, out.confidence));

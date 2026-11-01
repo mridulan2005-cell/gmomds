@@ -225,13 +225,14 @@ function classify(img: Img): Classes {
 function canny(c: Classes): Uint8Array {
   const { w, h, gm, ex, ey } = c, n = w * h, nms = new Float32Array(n);
   for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
-    const i = y * w + x, m = gm[i]; if (m < 0.006) continue;
+    const i = y * w + x, m = gm[i]; if (m < 0.003) continue;
     const gx = ex[i], gy = ey[i], a = Math.abs(Math.atan2(gy, gx)) % Math.PI;
     // neighbours across the edge
     const [o1, o2] = a < Math.PI / 8 || a >= (7 * Math.PI) / 8 ? [1, -1] : a < (3 * Math.PI) / 8 ? (gx * gy > 0 ? [w + 1, -w - 1] : [w - 1, -w + 1]) : a < (5 * Math.PI) / 8 ? [w, -w] : gx * gy > 0 ? [w - 1, -w + 1] : [w + 1, -w - 1];
     if (m >= gm[i + o1] && m >= gm[i + o2]) nms[i] = m;
   }
-  const sorted = Float32Array.from(gm).sort(), hi = Math.min(0.045, Math.max(0.018, sorted[Math.floor(n * 0.85)])), lo = Math.max(0.006, hi * 0.3);
+  // thresholds follow the scene: a white sheet on a white wall is only a few levels lighter, and that is the edge there is
+  const sorted = Float32Array.from(gm).sort(), hi = Math.min(0.045, Math.max(0.008, sorted[Math.floor(n * 0.85)])), lo = Math.max(0.004, hi * 0.3);
   const e = new Uint8Array(n), st: number[] = [];
   for (let i = 0; i < n; i++) if (nms[i] >= hi) { e[i] = 1; st.push(i); }
   while (st.length) {
@@ -314,7 +315,7 @@ function findSheet(img: Img, maxSide: number, log?: object[], flat = false): Fou
         seen++; ss++; if (g[ii] > g[oo] - 0.03) lighter++;
         let e = 0; for (let t = -2; t <= 2; t++) e = Math.max(e, gm[at(px + nx * t, py + ny * t)]);
         const diff = Math.abs(g[ii] - g[oo]);
-        if ((e > 0.035 && diff > 0.05) || (near[at(px, py)] && diff > 0.02)) { pass++; sp++; } // a clear edge, or a faint one Canny traced
+        if ((e > 0.035 && diff > 0.05) || (near[at(px, py)] && diff > 0.01)) { pass++; sp++; } // a clear edge, or a faint one Canny traced
       }
       if (ss >= steps * 0.3) weakest = Math.min(weakest, sp / ss);
     }
@@ -887,14 +888,26 @@ function cutout(mask: Uint8Array, mw: number, mh: number, solid: Uint8Array, w: 
   const fw = w / W, fh = h / H;
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (solid[Math.min(h - 1, Math.floor((y + 0.5) * fh)) * w + Math.min(w - 1, Math.floor((x + 0.5) * fw))]) S[y * W + x] = 1;
   S = despeckle(S, W, H, 8);
+  // cut like a sticker: one outline around the whole drawing, and everything inside it stays (the paper between
+  // a figure's arms, between two people, inside a house), with a thin white border and rounded corners
+  const reach = Math.max(3, Math.round(Math.max(W, H) * 0.12)), border = Math.max(1, Math.round(Math.max(W, H) * 0.025));
+  S = erode(dilate(S, W, H, reach), W, H, reach - border);
+  { // one outline around all of it: parts far apart (a figure and a flower beside it), bays of paper between them
+    const hp = hull(outline(S, W, H));
+    if (hp.length >= 3) for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (pointInPoly(x + 0.5, y + 0.5, hp)) S[y * W + x] = 1;
+  }
+  // round off the square corners the grid leaves, like scissors would
+  for (let it = 0; it < 2; it++) { const b = boxBlur(Float32Array.from(S), W, H, Math.max(2, border * 2)); for (let i = 0; i < S.length; i++) S[i] = b[i] > 0.5 ? 1 : 0; }
+  const inside = label(S.map(v => (v ? 0 : 1)) as Uint8Array, W, H, false), open = touchesBorder(inside.lab, W, H);
+  for (let i = 0; i < S.length; i++) if (!S[i] && !open.has(inside.lab[i])) S[i] = 1;
+  // the sticker is a little bigger than the lines: fit it to the 64 box, standing on the same ground line
+  const sb = bbox(S, W, H) || { x0: 0, y0: 0, x1: W - 1, y1: H - 1 }, sw = (sb.x1 - sb.x0 + 1) * fw, sh = (sb.y1 - sb.y0 + 1) * fh;
+  k = 58 / Math.max(sw, sh); ox = 32 - (sb.x0 * fw + sw / 2) * k; oy = 61 - (sb.y1 + 1) * fh * k;
   const T = (p: Pt): string => (p[0] * fw * k + ox).toFixed(2) + ' ' + (p[1] * fh * k + oy).toFixed(2);
   const ring = (c: Pt[]) => { const q = capPoints(rdpClosed(chaikin(c, true, 1), 0.5), 420); return q.length >= 3 ? 'M' + q.map(T).join('L') + 'Z' : null; };
   const fg = label(S, W, H, true), outer: string[] = [];
   for (let id = 1; id < fg.sizes.length; id++) { const r = ring(traceContour(fg.lab, W, H, id)); if (r) outer.push(r); }
-  const bgl = label(S.map(v => (v ? 0 : 1)) as Uint8Array, W, H, false), edge = new Set<number>(), holes: string[] = [];
-  for (let x = 0; x < W; x++) { edge.add(bgl.lab[x]); edge.add(bgl.lab[(H - 1) * W + x]); }
-  for (let y = 0; y < H; y++) { edge.add(bgl.lab[y * W]); edge.add(bgl.lab[y * W + W - 1]); }
-  for (let id = 1; id < bgl.sizes.length; id++) { if (edge.has(id) || bgl.sizes[id] < 12) continue; const r = ring(traceContour(bgl.lab, W, H, id)); if (r) holes.push(r); }
+  const holes: string[] = []; // (none: see above)
 
   // the photo of the drawing over the silhouette's box, with the paper made clean white (crayon and ink keep their colours)
   const bb = bbox(S, W, H) || { x0: 0, y0: 0, x1: W - 1, y1: H - 1 };
@@ -919,8 +932,14 @@ function cutout(mask: Uint8Array, mw: number, mh: number, solid: Uint8Array, w: 
 
 // ---------- the whole thing ----------
 export function processScan(photo: Img, opts: { minSharpness?: number } = {}): ScanResult {
-  const src = resize(photo, 1600);
-  const quad = detectPaper(src);
+  const src = resize(photo, 1600), quad = detectPaper(src);
+  const r = scanSheet(src, quad, opts);
+  // the sheet found had no drawing on it: perhaps it was the wrong sheet (a busy table, a sleeve). Look at the whole view.
+  if (quad && !r.ok && (r.error === 'empty' || r.error === 'not-drawing')) { const all = scanSheet(src, null, opts, true); if (all.ok) return all; }
+  return r;
+}
+
+function scanSheet(src: Img, quad: Quad | null, opts: { minSharpness?: number }, whole = false): ScanResult {
   const paper = quad ? warp(src, quad, 1000) : resize(src, 1000);
   const w = paper.width, h = paper.height;
   let m: Uint8Array = inkMask(paper);
@@ -936,7 +955,10 @@ export function processScan(photo: Img, opts: { minSharpness?: number } = {}): S
   const g = toGray(paper), sharp = sharpness(g, m, w, h);
   if (sharp < (opts.minSharpness ?? 0.045)) return { ok: false, error: 'blurry', quad, sharpness: sharp };
   const bb = bbox(m, w, h)!;
-  const pad = Math.round(Math.max(bb.x1 - bb.x0, bb.y1 - bb.y0) * 0.06) + 4;
+  // a thin line along the border of a blank sheet (its edge, a fold, notebook holes) is not a drawing
+  const thin = Math.min((bb.x1 - bb.x0) / w, (bb.y1 - bb.y0) / h) < 0.04, rim = Math.min(bb.x0, bb.y0, w - 1 - bb.x1, h - 1 - bb.y1) < Math.min(w, h) * 0.12;
+  if (thin && (rim || whole)) return { ok: false, error: 'empty', quad }; // (in the whole view: a sheet's edge)
+  const pad = Math.round(Math.max(bb.x1 - bb.x0, bb.y1 - bb.y0) * 0.1) + 4; // room for the sticker border
   const x0 = Math.max(0, bb.x0 - pad), y0 = Math.max(0, bb.y0 - pad), x1 = Math.min(w - 1, bb.x1 + pad), y1 = Math.min(h - 1, bb.y1 + pad);
   const cw = x1 - x0 + 1, ch = y1 - y0 + 1;
   const crop = cropImg(paper, x0, y0, cw, ch);

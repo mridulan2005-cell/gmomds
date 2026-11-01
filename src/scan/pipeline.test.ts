@@ -27,6 +27,15 @@ function stroke(img: Img, pts: Pt[], r: number, rgb: [number, number, number]) {
     }
   }
 }
+class Path2DLike {
+  pts: Pt[];
+  constructor(d: string) { this.pts = d.replace(/[MZ]/g, '').split('L').map(p => p.trim().split(/\s+/).map(Number) as Pt); }
+  contains(x: number, y: number) {
+    let c = false; const p = this.pts;
+    for (let i = 0, j = p.length - 1; i < p.length; j = i++) if ((p[i][1] > y) !== (p[j][1] > y) && x < ((p[j][0] - p[i][0]) * (y - p[i][1])) / (p[j][1] - p[i][1]) + p[i][0]) c = !c;
+    return c;
+  }
+}
 const ellipse = (cx: number, cy: number, rx: number, ry: number, n = 60): Pt[] => Array.from({ length: n + 1 }, (_, i) => [cx + rx * Math.cos((i / n) * 2 * Math.PI), cy + ry * Math.sin((i / n) * 2 * Math.PI)] as Pt);
 
 function photo() {
@@ -83,11 +92,28 @@ describe('scan pipeline', () => {
     expect(v.sil!.outer.length).toBeGreaterThanOrEqual(1); // body with legs, beak and eye in one piece (eye may be separate)
     expect(v.art!.width).toBeGreaterThan(50);
     const [x0, y0, x1, y1] = v.artBox!;
-    expect(x1 - x0).toBeGreaterThan(40); expect(y1).toBeLessThanOrEqual(61); expect(y0).toBeGreaterThanOrEqual(0);
+    expect(x1 - x0).toBeGreaterThan(40); expect(y1).toBeLessThanOrEqual(64); expect(y0).toBeGreaterThanOrEqual(0); // (sticker border included)
     // paper is white in the image, ink stays dark
     const d = v.art!.data; let light = 0, dark = 0;
     for (let i = 0; i < d.length; i += 4) { const l = (d[i] + d[i + 1] + d[i + 2]) / 3; if (l > 240) light++; else if (l < 90) dark++; }
     expect(light).toBeGreaterThan(dark); expect(dark).toBeGreaterThan(20);
+  });
+
+  it('cuts out like a sticker: one piece, the paper between the parts kept', () => {
+    const img = canvas(640, 480, [92, 70, 55]);
+    fillPoly(img, [[150, 60], [500, 80], [520, 430], [130, 410]], [246, 244, 238]);
+    // a stick figure: head, body, arms, legs, and a flower beside it
+    stroke(img, ellipse(300, 150, 25, 25), 2.5, [40, 40, 60]);
+    stroke(img, [[300, 175], [300, 280]], 2.5, [40, 40, 60]);
+    stroke(img, [[250, 210], [350, 210]], 2.5, [40, 40, 60]);
+    stroke(img, [[300, 280], [270, 340]], 2.5, [40, 40, 60]); stroke(img, [[300, 280], [330, 340]], 2.5, [40, 40, 60]);
+    stroke(img, [[390, 340], [390, 270]], 2.5, [40, 160, 60]); fillPoly(img, ellipse(390, 260, 14, 14), [230, 80, 120]);
+    const v = processScan(img).vector!;
+    expect(v.sil!.outer.length).toBe(1);
+    expect(v.sil!.holes.length).toBe(0);
+    // the point between the legs, on bare paper, is inside the cut-out
+    const path = new Path2DLike(v.sil!.outer[0]), [x0, y0, x1, y1] = v.artBox!;
+    expect(path.contains((x0 + x1) / 2 - 2, y0 + (y1 - y0) * 0.85)).toBe(true);
   });
 
   it('says "empty" for a blank page', () => {

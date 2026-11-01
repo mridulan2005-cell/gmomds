@@ -16,6 +16,8 @@ On the iPad, open the **Network** URL that Vite prints. The page is HTTPS, which
 
 Other commands: `npm test` (scan pipeline tests), `npm run build`, `npm run preview` (the built app over HTTPS, with the API), `npm start` (plain HTTP production server; put it behind HTTPS), and `npm run fetch-model` (see below).
 
+**On Vercel:** the `api/` folder holds the serverless functions for `/api/recognise`, `/api/prompt` and `/api/health`, using the same code as the dev server. Add `ANTHROPIC_API_KEY` under Project → Settings → Environment Variables and redeploy. `/api/health` shows `"ai": true` once the key is in place. Without the key the app still works, but it guesses drawings on the tablet (DoodleNet and the day's prompt) instead of asking Claude.
+
 ## How a drawing comes to life
 
 1. **Capture** (`src/screens/Scan.tsx`): this is the front camera inside the tray viewfinder ("Switch camera" uses the rear one). When a sheet is found, no hands are over it, and it is held still for about 1 second, it is captured automatically. Saying "take" (or "click", "snap", "cheese") captures it too, where the browser offers speech recognition. "It's on the tray" captures by hand, and "Use a photo" takes a photo or picks one from the library. "Retake" scans a drawing again, right after scanning or later from today's sketches. Dadi scans first, then the grandchild; the order of scanning decides whose drawing is whose.

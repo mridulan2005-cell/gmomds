@@ -13,14 +13,15 @@
   canvas { width: 100%; height: 190px; object-fit: contain; background: #222; display: block; border-radius: 4px; }
   figcaption { font-size: 12px; padding-top: 4px; display: flex; justify-content: space-between; }
   .bad { color: #c0392b; font-weight: 700; }
+  canvas.ink { height: 120px; width: 120px; margin-top: 4px; border-radius: 4px; }
 </style>
 </head>
 <body>
 <h1>Paper lab</h1>
-<p>Runs the scanner's paper finder on real photos. Yellow: the sheet's corners. Red tint: left out (hands, background). Add photo URLs (CORS-enabled) with <code>?u=url1|url2</code>.</p>
+<p>Runs the scanner's paper finder on real photos. Yellow: the sheet's corners. Red tint: left out (hands, background). Add photo URLs (CORS-enabled) with <code>?u=url1|url2</code>, or pick reference photos with <code>?n=3,7</code>.</p>
 <div id="grid"></div>
 <script type="module">
-import { detectSheet, drawingArea } from '/src/scan/pipeline.ts';
+import { detectSheet, drawingArea, processScan } from '/src/scan/pipeline.ts';
 
 const DEFAULT = [
   // people holding paper or signs in front of the camera
@@ -42,7 +43,8 @@ const DEFAULT = [
   'photo-1617328332024-e5a942ff38bc', 'photo-1605011365301-03970fa610ee', 'photo-1615999106742-2dfa10cdf0f4',
 ].map(id => `https://images.unsplash.com/${id}?w=640&q=80`);
 const q = new URLSearchParams(location.search).get('u');
-const urls = q ? q.split('|') : DEFAULT;
+const pick = new URLSearchParams(location.search).get('n'); // ?n=3,7: only those reference photos
+const urls = q ? q.split('|') : pick ? pick.split(',').map(i => DEFAULT[+i]) : DEFAULT;
 const grid = document.getElementById('grid');
 window.results = [];
 
@@ -85,11 +87,22 @@ for (const [n, url] of urls.entries()) {
     const x = cv.getContext('2d', { willReadFrequently: true }); x.drawImage(im, 0, 0, cv.width, cv.height);
     const d = x.getImageData(0, 0, cv.width, cv.height), img = { width: cv.width, height: cv.height, data: new Uint8ClampedArray(d.data) };
     const t0 = performance.now(), sheet = detectSheet(img), area = drawingArea(img), ms = Math.round(performance.now() - t0);
+    // the whole scan, as the app runs it: what it keeps of the drawing, or why it gives up
+    const scan = processScan({ width: img.width, height: img.height, data: new Uint8ClampedArray(d.data) });
     for (let i = 0; i < area.length; i++) if (!area[i]) { d.data[i * 4] = d.data[i * 4] * 0.5 + 110; d.data[i * 4 + 1] *= 0.45; d.data[i * 4 + 2] *= 0.45; }
     x.putImageData(d, 0, 0);
     if (sheet.quad) { x.strokeStyle = '#FFC93C'; x.lineWidth = 4; x.beginPath(); sheet.quad.forEach(([a, b], k) => (k ? x.lineTo(a, b) : x.moveTo(a, b))); x.closePath(); x.stroke(); }
-    cap.innerHTML = `<b>#${n}</b><span class="${sheet.quad ? '' : 'bad'}">${sheet.quad ? 'sheet' : 'no sheet'}${sheet.hands ? ' · hands' : ''} · ${ms} ms</span>`;
-    window.results.push({ n, quad: !!sheet.quad, hands: sheet.hands });
+    cap.innerHTML = `<b>#${n}</b><span class="${sheet.quad ? '' : 'bad'}">${sheet.quad ? 'sheet' : 'no sheet'}${sheet.hands ? ' · hands' : ''} · ${ms} ms</span><span class="${scan.ok ? '' : 'bad'}">${scan.ok ? 'scan ok' : scan.error}</span>`;
+    // the cut-out as the map shows it: the drawing's photo inside its outline, on grey
+    const v = scan.ok && scan.vector;
+    if (v && v.art && v.sil) {
+      const S = 3, k = document.createElement('canvas'); k.width = k.height = 64 * S; k.className = 'ink'; const kx = k.getContext('2d');
+      kx.fillStyle = '#bbb'; kx.fillRect(0, 0, k.width, k.height); kx.scale(S, S);
+      const clip = new Path2D(); v.sil.outer.forEach(o => clip.addPath(new Path2D(o))); kx.save(); kx.clip(clip, 'evenodd');
+      const a = document.createElement('canvas'); a.width = v.art.width; a.height = v.art.height; a.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(v.art.data), a.width, a.height), 0, 0);
+      const [x0, y0, x1, y1] = v.artBox; kx.drawImage(a, x0, y0, x1 - x0, y1 - y0); kx.restore(); fig.append(k);
+    }
+    window.results.push({ n, quad: !!sheet.quad, hands: sheet.hands, scan: scan.ok ? 'ok' : scan.error });
   } catch (e) { cap.textContent = `#${n} could not load`; window.results.push({ n, error: true }); }
 }
 window.done = true;
