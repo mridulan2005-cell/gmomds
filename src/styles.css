@@ -65,20 +65,20 @@ input { font-family: inherit; -webkit-user-select: text; user-select: text; }
 
 /* Scan */
 .scan { background: var(--mustard); }
-.scan-head { margin-top: 44px; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 14px; font-size: 54px; font-weight: 900; letter-spacing: -.02em; text-align: center; padding: 0 30px; min-height: 76px; z-index: 1; }
+.scan-head { margin-top: 26px; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 14px; font-size: 54px; font-weight: 900; letter-spacing: -.02em; text-align: center; padding: 0 30px; min-height: 76px; z-index: 1; }
 .portrait .scan-head { font-size: 50px; margin-top: 70px; }
 .name-tag { padding: 2px 22px 8px; border-radius: 16px; color: var(--cream); rotate: -2deg; }
-.tray-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; min-height: 0; padding-bottom: 20px; z-index: 1; }
-.tray { position: relative; height: min(460px, calc(var(--H) * .54)); aspect-ratio: 400 / 460; background: #FFF6E3; rotate: -1.5deg; }
-.portrait .tray { height: min(620px, calc(var(--H) * .5)); }
+.tray-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; min-height: 0; padding-bottom: 20px; z-index: 1; }
+.tray { position: relative; height: min(calc(var(--H) * .64), calc((var(--W) - 80px) * 1.15)); aspect-ratio: 400 / 460; background: #FFF6E3; rotate: -1.5deg; }
+.portrait .tray { height: min(calc(var(--H) * .58), calc((var(--W) - 80px) * 1.15)); }
 .perf { position: absolute; background: radial-gradient(circle, var(--perf, #F5C84C) 7px, transparent 7.5px); }
 .perf.t, .perf.b { left: 0; right: 0; height: 20px; background-size: 22px 20px; background-repeat: repeat-x; }
 .perf.t { top: -10px } .perf.b { bottom: -10px }
 .perf.l, .perf.r { top: 0; bottom: 0; width: 20px; background-size: 20px 22px; background-repeat: repeat-y; }
 .perf.l { left: -10px } .perf.r { right: -10px }
-.tray-inner { position: absolute; left: 6.5%; right: 6.5%; top: 5.6%; bottom: 15%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+.tray-inner { position: absolute; left: 4.5%; right: 4.5%; top: 4%; bottom: 11%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
 .tray-inner video, .tray-inner .still { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.tray-foot { position: absolute; left: 6.5%; right: 6.5%; bottom: 4%; display: flex; justify-content: space-between; align-items: center; font-size: 22px; font-weight: 900; text-transform: uppercase; }
+.tray-foot { position: absolute; left: 4.5%; right: 4.5%; bottom: 2.5%; display: flex; justify-content: space-between; align-items: center; font-size: 22px; font-weight: 900; text-transform: uppercase; }
 .paper-slot { width: 64%; height: 70%; border: 4px dashed currentColor; border-radius: 14px; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 22px; font-weight: 800; padding: 10px; }
 .scan-paper { position: relative; width: 70%; height: 74%; background: #fff; border-radius: 8px; box-shadow: 0 4px 14px rgba(0, 0, 0, .12); rotate: 1.5deg; overflow: hidden; display: flex; align-items: center; justify-content: center; }
 .scan-paper img { max-width: 88%; max-height: 88%; object-fit: contain; }

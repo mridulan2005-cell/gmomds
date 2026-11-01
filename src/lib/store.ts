@@ -43,7 +43,7 @@ function addExampleMaps(s: AppState) {
 }
 
 function fresh(): AppState {
-  const s: AppState = { version: 1, onboarded: false, names: { dadi: 'Dadi', child: 'Anu' }, loves: { dadi: [], child: [] }, months: [newMonth(0)], drawings: {}, prompt: null, recentPrompts: [], scanning: null, lastFresh: null };
+  const s: AppState = { version: 1, onboarded: false, names: { dadi: 'Sunita', child: 'Aarav' }, loves: { dadi: [], child: [] }, months: [newMonth(0)], drawings: {}, prompt: null, recentPrompts: [], scanning: null, lastFresh: null };
   addExampleMaps(s);
   return s;
 }
@@ -71,6 +71,8 @@ export async function load() {
       const months = new Set(Array.from({ length: 12 }, (_, i) => new Date(2000, i, 1).toLocaleString('en', { month: 'long' })));
       state.months.forEach((m, i) => { if (months.has(m.name)) m.name = MAPS[(state.months.length - 1 - i) % MAPS.length].name; });
       if (!s.examples) { addExampleMaps(state); persist(); }
+      // the old placeholder names become Sunita and Aarav
+      if (state.names.dadi === 'Dadi' && state.names.child === 'Anu') { state.names = { dadi: 'Sunita', child: 'Aarav' }; persist(); }
     }
   } catch (e) { console.warn('load failed', e); }
   loaded = true; emit();

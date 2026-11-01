@@ -11,7 +11,7 @@ import type { Img, Quad, ScanError } from '../scan/pipeline';
 
 type Phase = 'starting' | 'camera' | 'nocam' | 'processing' | 'scanning' | 'done' | 'error';
 let lastCapture: Float32Array | null = null; // so the grandchild's turn doesn't re-scan Dadi's sheet
-let preferFront = true; // the front camera by default; "Switch camera" flips it
+const preferFront = true; // always the front camera
 // Some cameras send a mirrored picture (writing comes out backwards). "Flip" turns it the right way round, per camera, and is remembered.
 const flipKey = () => 'dadis-map:flip:' + (preferFront ? 'user' : 'environment');
 const readFlip = () => { try { return localStorage.getItem(flipKey()) === '1'; } catch { return false; } };
@@ -205,7 +205,7 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
           {phase === 'error' && <div className="notice">{err === 'blurry' ? 'Hold the tablet still and try again.' : err === 'empty' ? 'We found the paper but no pencil marks on it. Make sure the drawing faces the camera, or press a little harder with the pencil, and try again.' : err === 'not-drawing' ? 'Hold the paper so it fills most of the picture, with nothing else in front of it, and try again.' : 'Something went wrong while scanning. Please try again.'}</div>}
 
           {(phase === 'processing' || phase === 'scanning') && <div className="busy">Scanning…</div>}
-          {live && <button className="btn-primary" disabled={phase === 'starting'} onClick={() => void capture('camera')}><Arrow />It's on the tray</button>}
+          {live && <button className="btn-primary" disabled={phase === 'starting'} onClick={() => void capture('camera')}><Arrow />Take</button>}
           {phase === 'nocam' && <button className="btn-primary" onClick={() => fileIn.current?.click()}><Arrow />Choose a photo</button>}
           {phase === 'error' && <button className="btn-primary" onClick={retry}><Arrow />Try again</button>}
           {phase === 'done' && (replace || who === 'child'
@@ -217,9 +217,7 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
             <div className="scan-secondary">
               <button className="btn-cream small" onClick={() => fileIn.current?.click()}>Use a photo</button>
               {phase === 'error' && frameUrl.current && <a className="btn-cream small" href={frameUrl.current} download="dadis-map-scan.jpg">Save this photo</a>}
-              {live && <button className="btn-cream small" onClick={() => { preferFront = !preferFront; setFlip(readFlip()); void startCamera(); }}>Switch camera</button>}
               {live && <button className="btn-cream small" onClick={() => { const f = !flip; setFlip(f); hist.current = []; try { localStorage.setItem(flipKey(), f ? '1' : '0'); } catch { /* not remembered */ } }}>Flip</button>}
-              <button className="btn-cream small" onClick={() => go(replace ? { screen: 'sketches' } : { screen: 'home' })}>Not now</button>
             </div>
           )}
         </div>

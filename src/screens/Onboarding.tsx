@@ -14,12 +14,12 @@ export function Onboarding({ go }: { go: Go }) {
   const next = () => {
     if (!mine.length) return;
     if (step === 0) setStep(1);
-    else { finishOnboarding({ dadi: names.dadi.trim() || 'Dadi', child: names.child.trim() || 'Anu' }, picks); go({ screen: 'home' }); }
+    else { finishOnboarding({ dadi: names.dadi.trim() || 'Sunita', child: names.child.trim() || 'Aarav' }, picks); go({ screen: 'home' }); }
   };
   return (
     <div className="screen ob safe-top">
       <div className="ob-sub">Before we begin · {step + 1} of 2</div>
-      <div className="ob-title"><span style={{ color }}>{who === 'dadi' ? names.dadi || 'Dadi' : names.child || 'Your grandchild'}</span>, what do you love?</div>
+      <div className="ob-title"><span style={{ color }}>{who === 'dadi' ? names.dadi || 'Sunita' : names.child || 'Your grandchild'}</span>, what do you love?</div>
       {step === 1 && (
         <label className="name-field" style={{ color: CHILD }}>
           My name is
