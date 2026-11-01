@@ -470,20 +470,49 @@ export function sheetCandidates(img: Img, maxSide = 256): { w: number; h: number
 export function detectPaper(img: Img): Quad | null { return detectSheet(img).quad; }
 
 /**
+ * A "sheet" with three sides on the frame of the photo and one across it: the paper fills the view, and the one side
+ * is either the sheet's real edge (the table beyond it) or a line through the drawing (a leaf's edge, a drawn ground
+ * line) with more of the same paper beyond it. True for the second: then the whole view is the sheet.
+ */
+export function paperBeyond(img: Img, q: Quad): boolean {
+  const W = img.width, H = img.height, frame = Math.max(2, Math.max(W, H) * 0.01);
+  const onFrame = (p: Pt) => [p[0] < frame, p[1] < frame, p[0] > W - 1 - frame, p[1] > H - 1 - frame];
+  const framed = q.filter((a, k) => { const fa = onFrame(a), fb = onFrame(q[(k + 1) % 4]); return fa.some((v, i) => v && fb[i]); }).length;
+  if (framed < 3) return false;
+  const small = resize(img, 300), w = small.width, h = small.height, k = w / W, d = small.data;
+  const sq = q.map(([x, y]) => [x * k, y * k] as Pt), m = inkMask(small), ins = new Uint8Array(w * h), cols: number[][] = [[], [], []];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = y * w + x; ins[i] = pointInPoly(x + 0.5, y + 0.5, sq) ? 1 : 0; if (ins[i] && !m[i]) for (let c = 0; c < 3; c++) cols[c].push(d[i * 4 + c]); }
+  if (!cols[0].length) return false;
+  const med = cols.map(a => { a.sort((u, v) => u - v); return a[a.length >> 1]; });
+  let bare = 0, same = 0;
+  for (let i = 0; i < w * h; i++) {
+    if (ins[i] || m[i]) continue; bare++;
+    if (Math.max(Math.abs(d[i * 4] - med[0]), Math.abs(d[i * 4 + 1] - med[1]), Math.abs(d[i * 4 + 2] - med[2])) < 22) same++;
+  }
+  return bare > 0 && same / bare > 0.35;
+}
+
+/**
  * Where a drawing can be: the sheet and the marks on it. Hands (skin, and the shadows they cast, reaching in
  * from the edge), the background, and anything else that reaches in from outside the sheet are left out.
- * Returns a mask the size of img. flat: img is the sheet already cut out and flattened.
+ * Returns a mask the size of img. flat: img is the sheet already cut out and flattened. fills: the sheet fills the
+ * whole view (there is no background), so anything reaching the edge of the view is still on the sheet.
  */
-export function drawingArea(img: Img, flat = false): Uint8Array {
+export function drawingArea(img: Img, flat = false, fills = false): Uint8Array {
   const f = findSheet(img, 320, undefined, flat), { c } = f, { w, h } = c, W = img.width, H = img.height;
   const area = new Uint8Array(W * H);
   if (!f.score) { area.fill(1); return area; }
   const P = f.m, hp = hull(outline(P, w, h));
   const inHull = new Uint8Array(w * h);
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) inHull[y * w + x] = hp.length >= 3 && pointInPoly(x + 0.5, y + 0.5, hp) ? 1 : 0;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) inHull[y * w + x] = fills || (hp.length >= 3 && pointInPoly(x + 0.5, y + 0.5, hp)) ? 1 : 0;
   const shadow = dilate(erode(c.grey, w, h, 2), w, h, 2); // thick soft grey, not thin pencil lines
   // on the flattened sheet, strong red and orange is crayon (a sun, a mouth), not a hand
-  const skin = flat ? c.skin.map((v, i) => (v && c.sat[i] < 0.7 ? 1 : 0)) as Uint8Array : c.skin;
+  // and when the sheet fills the view, a hand is big: a small pale-orange patch at the edge is a sun, not a hand
+  let skin = c.skin;
+  if (flat) {
+    const sm = c.skin.map((v, i) => (v && c.sat[i] < 0.7 ? 1 : 0)) as Uint8Array, sl = label(sm, w, h);
+    skin = fills ? sm.map((v, i) => (v && sl.sizes[sl.lab[i]] >= w * h * 0.015 ? 1 : 0)) as Uint8Array : sm;
+  }
   // flood in from the edge of the view: anything outside the sheet, and over the sheet only hands and their shadows
   const out = new Uint8Array(w * h), pass = (i: number) => !P[i] && (!inHull[i] || skin[i] || shadow[i]), st: number[] = [];
   const seed = (i: number) => { if (!out[i] && pass(i)) { out[i] = 1; st.push(i); } };
@@ -508,7 +537,7 @@ export function drawingArea(img: Img, flat = false): Uint8Array {
   // along an edge (a strip of table, a sleeve) reach in from outside
   const along = new Float64Array(rl.sizes.length);
   if (flat) { for (let x = 0; x < w; x++) { along[rl.lab[x]]++; along[rl.lab[(h - 1) * w + x]]++; } for (let y = 0; y < h; y++) { along[rl.lab[y * w]]++; along[rl.lab[y * w + w - 1]]++; } }
-  const fromOutside = (l: number) => edge.has(l) && (!flat || along[l] > Math.min(w, h) * 0.08);
+  const fromOutside = (l: number) => edge.has(l) && !fills && (!flat || along[l] > Math.min(w, h) * 0.08);
   const ok = new Uint8Array(w * h);
   for (let i = 0; i < ok.length; i++) { const l = rl.lab[i]; ok[i] = !gone[i] && (P[i] || (l && !fromOutside(l) && byPaper[l] >= byHand[l])) ? 1 : 0; }
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) area[y * W + x] = ok[Math.min(h - 1, Math.floor((y * h) / H)) * w + Math.min(w - 1, Math.floor((x * w) / W))];
@@ -574,7 +603,7 @@ function background(g: Float32Array, w: number, h: number): Float32Array {
 function saturation(d: Uint8ClampedArray, j: number) { const mx = Math.max(d[j], d[j + 1], d[j + 2]), mn = Math.min(d[j], d[j + 1], d[j + 2]); return mx ? (mx - mn) / mx : 0; }
 
 /** Marks on the paper (pencil, pen and crayon) as a binary mask. */
-export function inkMask(paper: Img): Uint8Array {
+export function inkMask(paper: Img, margin = 0.025): Uint8Array {
   const { width: w, height: h, data } = paper, g = toGray(paper), bg = background(g, w, h), m = new Uint8Array(w * h);
   // a big coloured-in area can fool the local estimate; paper is never much darker than the sheet's bright level
   const sorted = Float32Array.from(g.filter((_, i) => i % 7 === 0)).sort(), p90 = sorted[Math.floor(sorted.length * 0.9)] || 1;
@@ -599,8 +628,9 @@ export function inkMask(paper: Img): Uint8Array {
     const i = st.pop()!, x = i % w;
     for (const d of [-w - 1, -w, -w + 1, -1, 1, w - 1, w, w + 1]) { const j = i + d; if (j < 0 || j >= m.length || m[j] || Math.abs((j % w) - x) > 1 || ((lc[j] <= weak || line[j] <= weak * 0.4) && dk[j] <= 0.18)) continue; m[j] = 1; st.push(j); }
   }
-  // ignore a thin margin, where the paper edge and the tray can creep in
-  const mx = Math.round(w * 0.025), my = Math.round(h * 0.025);
+  // ignore a thin margin, where the paper edge and the tray can creep in (thinner when the edge of the view is the
+  // edge of the photo, not of the sheet: a sun or a cloud drawn right up to it stays whole)
+  const mx = Math.round(w * margin), my = Math.round(h * margin);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (x < mx || y < my || x >= w - mx || y >= h - my) m[y * w + x] = 0;
   return m;
 }
@@ -615,9 +645,13 @@ function despeckle(m: Uint8Array, w: number, h: number, minArea: number): Uint8A
  * Keep only the drawing: drop marks that touch the paper's edge (shadows, the tray, the table) and
  * small stray specks far away from the drawing (smudges, a crease), unless they are a big part of it.
  */
-export function onlyDrawing(m: Uint8Array, w: number, h: number): Uint8Array {
+export function onlyDrawing(m: Uint8Array, w: number, h: number, colour?: Uint8Array, fills = false): Uint8Array {
   const { lab, sizes } = label(m, w, h), n = sizes.length;
   if (n <= 1) return m;
+  // crayon and felt-tip colour is always part of the drawing (a sun in the corner, a cloud at the top): only grey
+  // marks can be a shadow, the table or a smudge
+  const coloured = new Float64Array(n); if (colour) for (let i = 0; i < m.length; i++) if (lab[i] && colour[i]) coloured[lab[i]]++;
+  const isColour = (l: number) => coloured[l] > sizes[l] * 0.3;
   const box = Array.from({ length: n }, () => ({ x0: w, y0: h, x1: -1, y1: -1 })), edge = new Uint8Array(n), b = Math.round(Math.max(w, h) * 0.03) + 2;
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const l = lab[y * w + x]; if (!l) continue; const r = box[l];
@@ -629,17 +663,22 @@ export function onlyDrawing(m: Uint8Array, w: number, h: number): Uint8Array {
   const keep = new Uint8Array(n);
   for (let l = 1; l < n; l++) {
     const r = box[l], strip = Math.min(r.x1 - r.x0, r.y1 - r.y0) < Math.max(w, h) * 0.06;
-    keep[l] = edge[l] && inner && (strip || sizes[l] < inner * 0.35) ? 0 : 1;
+    // (something long along the edge goes even when coloured: a book's printed border, a coloured table edge)
+    const long = Math.max(r.x1 - r.x0, r.y1 - r.y0) > Math.max(w, h) * 0.3;
+    // (when the sheet fills the view, the edge of the view is not the sheet's edge: only a thin strip can be the table)
+    const drawn = isColour(l) && !long && (fills || !strip);
+    keep[l] = edge[l] && inner && !drawn && (strip || (!fills && sizes[l] < inner * 0.35)) ? 0 : 1;
   }
   let total = 0; for (let l = 1; l < n; l++) if (keep[l]) total += sizes[l];
   // the main drawing: every kept mark that is a real part of it
   let mx0 = w, my0 = h, mx1 = -1, my1 = -1;
   for (let l = 1; l < n; l++) if (keep[l] && sizes[l] >= total * 0.03) { const r = box[l]; mx0 = Math.min(mx0, r.x0); my0 = Math.min(my0, r.y0); mx1 = Math.max(mx1, r.x1); my1 = Math.max(my1, r.y1); }
   if (mx1 >= 0) {
-    const reach = Math.max(mx1 - mx0, my1 - my0, Math.max(w, h) * 0.1) * 0.2;
+    const reach = Math.max(mx1 - mx0, my1 - my0, Math.max(w, h) * 0.1) * (fills ? 0.5 : 0.2);
     for (let l = 1; l < n; l++) {
-      if (!keep[l] || sizes[l] >= total * 0.03) continue;
-      const r = box[l], dx = Math.max(0, mx0 - r.x1, r.x0 - mx1), dy = Math.max(0, my0 - r.y1, r.y0 - my1);
+      const r = box[l];
+      if (!keep[l] || sizes[l] >= total * 0.03 || (isColour(l) && Math.max(r.x1 - r.x0, r.y1 - r.y0) < Math.max(w, h) * 0.3)) continue;
+      const dx = Math.max(0, mx0 - r.x1, r.x0 - mx1), dy = Math.max(0, my0 - r.y1, r.y0 - my1);
       if (Math.hypot(dx, dy) > reach) keep[l] = 0;
     }
   }
@@ -961,11 +1000,20 @@ function cutout(mask: Uint8Array, mw: number, mh: number, solid: Uint8Array, w: 
   for (let i = 0; i < dark.length; i++) dark[i] = Math.max(0, 1 - L[i] / Math.max(0.2, paperL[i]));
   const ds = Float32Array.from(dark.filter((_, i) => i % 3 === 0)).sort(), grain = ds[Math.floor(ds.length * 0.5)] + 0.02, deepest = ds[Math.floor(ds.length * 0.995)] || 0.3;
   const deepen = clamp(0.65 / Math.max(0.05, deepest - grain), 1, 6);
+  // colour is measured against the paper's own tint: pale crayon scribbled over white paper is only a little coloured,
+  // but it is red, green or blue all the same, and keeps that colour (a little brighter, as it looked on the paper)
+  const satOf = (i: number) => { const r = P[i * 3], g = P[i * 3 + 1], b = P[i * 3 + 2], mx = Math.max(r, g, b); return mx ? (mx - Math.min(r, g, b)) / mx : 0; };
+  const ps: number[] = []; for (let i = 0; i < dark.length; i += 3) if (dark[i] <= grain) ps.push(satOf(i));
+  ps.sort((u, v) => u - v);
+  const tint = ps.length ? ps[Math.floor(ps.length * 0.9)] : 0.1, from = Math.min(0.25, tint + 0.04);
   for (let i = 0; i < dark.length; i++) {
-    const o = i * 4, r = P[i * 3], g = P[i * 3 + 1], b = P[i * 3 + 2], mx = Math.max(r, g, b), sat = mx ? (mx - Math.min(r, g, b)) / mx : 0;
+    const o = i * 4, r = P[i * 3], g = P[i * 3 + 1], b = P[i * 3 + 2], sat = satOf(i);
     const v = 255 * (1 - clamp((dark[i] - grain) * deepen, 0, 0.75)); // pencil grey, or white paper
-    if (sat < 0.25) { art[o] = art[o + 1] = art[o + 2] = v; }
-    else { const t = clamp((sat - 0.25) / 0.2, 0, 1); art[o] = v + (Math.min(255, r) - v) * t; art[o + 1] = v + (Math.min(255, g) - v) * t; art[o + 2] = v + (Math.min(255, b) - v) * t; } // crayon keeps its colour
+    if (sat < from) { art[o] = art[o + 1] = art[o + 2] = v; }
+    else {
+      const t = clamp((sat - from) / 0.15, 0, 1), lum = 0.299 * r + 0.587 * g + 0.114 * b, rich = (c: number) => Math.min(255, Math.max(0, lum + (c - lum) * 1.35));
+      art[o] = v + (rich(r) - v) * t; art[o + 1] = v + (rich(g) - v) * t; art[o + 2] = v + (rich(b) - v) * t; // crayon keeps its colour
+    }
     art[o + 3] = 255;
   }
   const artBox: [number, number, number, number] = [bx0 * fw * k + ox, by0 * fh * k + oy, (bx1 + 1) * fw * k + ox, (by1 + 1) * fh * k + oy];
@@ -974,24 +1022,28 @@ function cutout(mask: Uint8Array, mw: number, mh: number, solid: Uint8Array, w: 
 
 // ---------- the whole thing ----------
 export function processScan(photo: Img, opts: { minSharpness?: number } = {}): ScanResult {
-  const src = resize(photo, 1600), quad = detectPaper(src);
-  const r = scanSheet(src, quad, opts);
+  const src = resize(photo, 1600), found = detectPaper(src);
+  // the paper fills the view and the one "edge" found runs through the drawing: the whole view is the sheet
+  const fills = !!found && paperBeyond(src, found), quad = fills ? null : found;
+  const r = scanSheet(src, quad, opts, false, fills);
   // the sheet found had no drawing on it: perhaps it was the wrong sheet (a busy table, a sleeve). Look at the whole view.
   if (quad && !r.ok && (r.error === 'empty' || r.error === 'not-drawing')) { const all = scanSheet(src, null, opts, true); if (all.ok) return all; }
   return r;
 }
 
-function scanSheet(src: Img, quad: Quad | null, opts: { minSharpness?: number }, whole = false): ScanResult {
+function scanSheet(src: Img, quad: Quad | null, opts: { minSharpness?: number }, whole = false, fills = false): ScanResult {
   const paper = quad ? warp(src, quad, 1000) : resize(src, 1000);
   const w = paper.width, h = paper.height;
-  let m: Uint8Array = inkMask(paper);
+  let m: Uint8Array = inkMask(paper, quad ? 0.025 : 0.006);
   // only marks on the sheet: hands, their shadows and the background are not part of the drawing
-  const area = drawingArea(paper, !!quad);
+  const area = drawingArea(paper, !!quad || fills, fills);
   for (let i = 0; i < m.length; i++) if (!area[i]) m[i] = 0;
   m = despeckle(m, w, h, Math.max(6, Math.round(w * h * 0.00004)));
   // a photo of a room or a face is mostly "ink"; a drawing on paper is mostly paper
   if (m.reduce((a, v) => a + v, 0) > w * h * 0.55) return { ok: false, error: 'not-drawing', quad };
-  m = onlyDrawing(m, w, h);
+  const colour = new Uint8Array(w * h);
+  for (let i = 0; i < colour.length; i++) { const r = paper.data[i * 4], g = paper.data[i * 4 + 1], b = paper.data[i * 4 + 2], mx = Math.max(r, g, b), mn = Math.min(r, g, b); colour[i] = mx > 50 && (mx - mn) / mx > 0.28 ? 1 : 0; }
+  m = onlyDrawing(m, w, h, colour, fills);
   const inkCount = m.reduce((a, v) => a + v, 0);
   if (inkCount < w * h * 0.0004) return { ok: false, error: 'empty', quad }; // (a small pencil drawing can be under 0.1% of the sheet)
   const g = toGray(paper), sharp = sharpness(g, m, w, h);

@@ -38,12 +38,12 @@ class Path2DLike {
     return c;
   }
 }
-// Real photos from families' scans (8-bit RGB PNG), decoded with a tiny PNG reader.
+// Real photos from families' scans (8-bit RGB or RGBA PNG), decoded with a tiny PNG reader.
 function photoFile(name: string): Img {
   const buf = readFileSync(new URL('./fixtures/' + name, import.meta.url));
   const w = buf.readUInt32BE(16), h = buf.readUInt32BE(20), idat: Buffer[] = [];
   for (let o = 8; o < buf.length;) { const len = buf.readUInt32BE(o), type = buf.toString('ascii', o + 4, o + 8); if (type === 'IDAT') idat.push(buf.subarray(o + 8, o + 8 + len)); o += 12 + len; }
-  const raw = inflateSync(Buffer.concat(idat)), bpp = 3, stride = w * bpp, px = new Uint8Array(stride * h);
+  const raw = inflateSync(Buffer.concat(idat)), bpp = buf[25] === 6 ? 4 : 3, stride = w * bpp, px = new Uint8Array(stride * h);
   for (let y = 0; y < h; y++) {
     const f = raw[y * (stride + 1)], line = raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1)), o = y * stride;
     for (let x = 0; x < stride; x++) {
@@ -52,7 +52,7 @@ function photoFile(name: string): Img {
       px[o + x] = (line[x] + (f === 1 ? a : f === 2 ? b : f === 3 ? (a + b) >> 1 : f === 4 ? (pa <= pb && pa <= pc ? a : pb <= pc ? b : c) : 0)) & 255;
     }
   }
-  const data = new Uint8ClampedArray(w * h * 4); for (let i = 0; i < w * h; i++) data.set([px[i * 3], px[i * 3 + 1], px[i * 3 + 2], 255], i * 4);
+  const data = new Uint8ClampedArray(w * h * 4); for (let i = 0; i < w * h; i++) data.set([px[i * bpp], px[i * bpp + 1], px[i * bpp + 2], 255], i * 4);
   return { width: w, height: h, data };
 }
 const ellipse = (cx: number, cy: number, rx: number, ry: number, n = 60): Pt[] => Array.from({ length: n + 1 }, (_, i) => [cx + rx * Math.cos((i / n) * 2 * Math.PI), cy + ry * Math.sin((i / n) * 2 * Math.PI)] as Pt);
@@ -153,6 +153,50 @@ describe('scan pipeline', () => {
     expect(r).toMatchObject({ ok: true });
     expect(r.vector!.sil!.outer.length).toBe(1);
     expect(r.crop!.height).toBeGreaterThan(r.crop!.width * 0.7); // sail and hull together
+  }, 30000);
+
+  // More real photos from families. Each must scan, as one piece, with nothing of the drawing cut off.
+  const share = (art: Img, test: (r: number, g: number, b: number) => boolean) => { let n = 0; for (let i = 0; i < art.data.length; i += 4) if (test(art.data[i], art.data[i + 1], art.data[i + 2])) n++; return n / (art.width * art.height); };
+  const scanOf = (name: string) => { const img = photoFile(name), r = processScan(img); expect(r).toMatchObject({ ok: true }); expect(r.vector!.sil!.outer.length).toBe(1); return { img, r }; };
+
+  it('keeps the hearts around a felt-tip watermelon', () => {
+    const { img, r } = scanOf('watermelon-marker.png');
+    expect(r.crop!.height).toBeGreaterThan(img.height * 0.9); // the hearts at the top and the rind at the bottom
+    expect(share(r.vector!.art!, (R, G, B) => R > 180 && G < 140 && B < 150)).toBeGreaterThan(0.08); // still red
+  }, 30000);
+
+  it('keeps a crayon house whole: the ground line is not the paper’s edge, and the sun in the corner stays', () => {
+    const { img, r } = scanOf('house-crayon.png');
+    expect(r.quad).toBeNull(); // the paper fills the photo
+    expect(r.crop!.width).toBeGreaterThan(img.width * 0.95); // the tree on the left, the sun on the right
+    expect(r.crop!.height).toBeGreaterThan(img.height * 0.95); // the sun at the top, the ground at the bottom
+    const art = r.vector!.art!;
+    expect(share(art, (R, G, B) => R > G + 40 && R > B + 40)).toBeGreaterThan(0.04); // red walls, not grey
+    expect(share(art, (R, G, B) => B > R + 30 && B > G)).toBeGreaterThan(0.01); // the blue roof
+    expect(share(art, (R, G, B) => G > R + 20 && G > B + 20)).toBeGreaterThan(0.01); // the green tree
+  }, 30000);
+
+  it('scans a pencil girl that fills the photo', () => {
+    const { img, r } = scanOf('girl-pencil.png');
+    expect(r.crop!.width).toBeGreaterThan(img.width * 0.85); expect(r.crop!.height).toBeGreaterThan(img.height * 0.9);
+    expect(share(r.vector!.art!, (R, G, B) => Math.max(R, G, B) - Math.min(R, G, B) > 40)).toBeLessThan(0.01); // pencil stays grey
+  }, 30000);
+
+  it('keeps a crayon butterfly whole on lined paper: a leaf’s edge is not the paper’s edge', () => {
+    const { img, r } = scanOf('butterfly-lined.png');
+    expect(r.quad).toBeNull();
+    expect(r.crop!.width).toBeGreaterThan(img.width * 0.9); expect(r.crop!.height).toBeGreaterThan(img.height * 0.9);
+    expect(share(r.vector!.art!, (R, G, B) => G > R + 30 && G > B + 30)).toBeGreaterThan(0.06); // the green leaf
+  }, 30000);
+
+  it('finds a held book page under a child’s face, and keeps only the jellyfish (not the printed border or words)', () => {
+    const { img, r } = scanOf('jellyfish-held.png');
+    const q = r.quad!; expect(q).not.toBeNull();
+    expect(Math.min(q[0][1], q[1][1])).toBeGreaterThan(img.height * 0.2); // below the face
+    const sheetW = Math.hypot(q[1][0] - q[0][0], q[1][1] - q[0][1]);
+    expect(r.crop!.width).toBeLessThan(sheetW * 0.85); // not the whole page
+    expect(r.crop!.width).toBeGreaterThan(sheetW * 0.6); // the head and every tentacle
+    expect(r.crop!.height).toBeGreaterThan(r.crop!.width * 0.75);
   }, 30000);
 
   it('says "empty" for a blank page', () => {
