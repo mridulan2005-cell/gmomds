@@ -116,6 +116,14 @@ describe('scan pipeline', () => {
     expect(path.contains((x0 + x1) / 2 - 2, y0 + (y1 - y0) * 0.85)).toBe(true);
   });
 
+  it('sees a small, light pencil drawing on a big sheet', () => {
+    const img = canvas(1280, 960, [200, 196, 188]);
+    fillPoly(img, [[340, 100], [940, 120], [930, 880], [330, 860]], [240, 238, 232]);
+    stroke(img, ellipse(640, 480, 36, 24), 1.2, [120, 120, 125]); // about 6 cm across on an A4 sheet
+    stroke(img, [[634, 504], [631, 522]], 1.2, [120, 120, 125]);
+    expect(processScan(img)).toMatchObject({ ok: true });
+  });
+
   it('says "empty" for a blank page', () => {
     const img = canvas(640, 480, [92, 70, 55]);
     fillPoly(img, [[150, 60], [500, 80], [520, 430], [130, 410]], [246, 244, 238]);

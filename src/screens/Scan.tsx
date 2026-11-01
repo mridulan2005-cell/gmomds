@@ -25,6 +25,7 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
   const [quad, setQuad] = useState<{ q: Quad; w: number; h: number } | null>(null);
   const [steady, setSteady] = useState(0);
   const [still, setStill] = useState<string | null>(null);
+  const frameUrl = useRef<string | null>(null); // the full photo, kept so a failed scan can be saved and looked at
   const [cropUrl, setCropUrl] = useState<string | null>(null);
   const [drawingId, setDrawingId] = useState<string | null>(null);
   const [fixing, setFixing] = useState(false);
@@ -120,6 +121,7 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
     phaseRef.current = 'processing'; setPhase('processing'); setQuad(null);
     lastCapture = thumb(frame);
     setStill(toCanvas(frame, 900).toDataURL('image/jpeg', 0.8));
+    frameUrl.current = toCanvas(frame).toDataURL('image/jpeg', 0.92);
     try {
       const r = await process(frame); // (frame's pixels move to the worker here)
       if (!r.ok || !r.crop || !r.vector) { setErr(r.error || 'failed'); setPhase('error'); return; }
@@ -160,7 +162,7 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
   const live = phase === 'camera' || phase === 'starting';
   const head = phase === 'processing' || phase === 'scanning' ? <span>Scanning. Keep it still.</span>
     : phase === 'done' ? <span>It's scanned!</span>
-    : phase === 'error' ? <span>{err === 'blurry' ? 'That came out a bit blurry' : err === 'empty' || err === 'not-drawing' ? "We couldn't see a drawing" : 'Let’s try that again'}</span>
+    : phase === 'error' ? <span>{err === 'blurry' ? 'That came out a bit blurry' : err === 'empty' ? "We couldn't see a drawing" : err === 'not-drawing' ? 'That looks like more than a drawing' : 'Let’s try that again'}</span>
     : <><span>Put</span><span className="name-tag" style={{ background: color }}>{name}</span><span>'s drawing on the tray</span></>;
 
   return (
@@ -200,7 +202,7 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
             </div>
           )}
           {phase === 'nocam' && <div className="notice">The camera isn't available here. You can take or choose a photo of the drawing instead.</div>}
-          {phase === 'error' && <div className="notice">{err === 'blurry' ? 'Hold the tablet still and try again.' : err === 'empty' ? 'Make sure the drawing is in view, or press a little harder with the pencil, and try again.' : err === 'not-drawing' ? 'Only drawings on paper can go on the map. Put the drawing on the tray and try again.' : 'Something went wrong while scanning. Please try again.'}</div>}
+          {phase === 'error' && <div className="notice">{err === 'blurry' ? 'Hold the tablet still and try again.' : err === 'empty' ? 'We found the paper but no pencil marks on it. Make sure the drawing faces the camera, or press a little harder with the pencil, and try again.' : err === 'not-drawing' ? 'Hold the paper so it fills most of the picture, with nothing else in front of it, and try again.' : 'Something went wrong while scanning. Please try again.'}</div>}
 
           {(phase === 'processing' || phase === 'scanning') && <div className="busy">Scanning…</div>}
           {live && <button className="btn-primary" disabled={phase === 'starting'} onClick={() => void capture('camera')}><Arrow />It's on the tray</button>}
@@ -214,6 +216,7 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
           {(live || phase === 'error') && (
             <div className="scan-secondary">
               <button className="btn-cream small" onClick={() => fileIn.current?.click()}>Use a photo</button>
+              {phase === 'error' && frameUrl.current && <a className="btn-cream small" href={frameUrl.current} download="dadis-map-scan.jpg">Save this photo</a>}
               {live && <button className="btn-cream small" onClick={() => { preferFront = !preferFront; setFlip(readFlip()); void startCamera(); }}>Switch camera</button>}
               {live && <button className="btn-cream small" onClick={() => { const f = !flip; setFlip(f); hist.current = []; try { localStorage.setItem(flipKey(), f ? '1' : '0'); } catch { /* not remembered */ } }}>Flip</button>}
               <button className="btn-cream small" onClick={() => go(replace ? { screen: 'sketches' } : { screen: 'home' })}>Not now</button>

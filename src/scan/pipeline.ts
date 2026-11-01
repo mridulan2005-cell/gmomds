@@ -951,7 +951,7 @@ function scanSheet(src: Img, quad: Quad | null, opts: { minSharpness?: number },
   if (m.reduce((a, v) => a + v, 0) > w * h * 0.55) return { ok: false, error: 'not-drawing', quad };
   m = onlyDrawing(m, w, h);
   const inkCount = m.reduce((a, v) => a + v, 0);
-  if (inkCount < w * h * 0.0015) return { ok: false, error: 'empty', quad };
+  if (inkCount < w * h * 0.0004) return { ok: false, error: 'empty', quad }; // (a small pencil drawing can be under 0.1% of the sheet)
   const g = toGray(paper), sharp = sharpness(g, m, w, h);
   if (sharp < (opts.minSharpness ?? 0.045)) return { ok: false, error: 'blurry', quad, sharpness: sharp };
   const bb = bbox(m, w, h)!;
