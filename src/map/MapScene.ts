@@ -16,10 +16,13 @@ export interface DrawCfg {
 }
 export interface PlaceCfg { name: string; shape: string; color: string; theme: string; status: 'locked' | 'current' | 'done'; pairs: [DrawCfg, DrawCfg][] }
 export interface MonthCfg { name: string; current: boolean; places: PlaceCfg[] }
-export type MapConfig =
+/** the caricatures they drew of each other (image URLs): d = Dadi, a = the grandchild */
+export interface Walkers { d: string; a: string }
+export type MapConfig = (
   | { mode: 'place'; key: string; place: PlaceCfg; fresh?: number; fade?: boolean }
-  | { mode: 'month'; key: string; places: PlaceCfg[] }
-  | { mode: 'stack'; key: string; months: MonthCfg[] };
+  | { mode: 'month'; key: string; places: PlaceCfg[]; kind?: string }
+  | { mode: 'stack'; key: string; months: MonthCfg[] }
+) & { walkers?: Walkers };
 export type Pick = { type: 'place'; pi: number } | { type: 'month'; mi: number };
 
 const DADI = '#2F5FD0', CHILD = '#E4572E', INK = '#3d2b22', DEPTH = 6, BT = 2.4, STEP = 900;
@@ -126,6 +129,8 @@ export function drawingGeo(d: DrawCfg): DrawGeo {
   GEO_CACHE.set(d.id, out); return out;
 }
 
+type Stop = { x: number; z: number; y?: number; p?: number; act?: 'sniff' | 'look' | 'wave' | null; f?: 1 | -1 };
+interface Walker { s: THREE.Sprite; legs: { a: Stop; b: Stop; t0: number; pause: number; dur: number }[]; total: number; h: number; off: number; face: number; hop: boolean; y0: number }
 interface Item { d: DrawCfg; base: THREE.Group; mover: THREE.Group; sc: THREE.Group; inner: THREE.Group; oa: THREE.Group; ob: THREE.Group; sh: THREE.Mesh; S: number; ph: number; rise: number }
 
 export class MapScene {
@@ -147,6 +152,8 @@ export class MapScene {
   private sheep: { o: THREE.Object3D; cx: number; cz: number; ph: number }[] = [];
   private clouds: { o: THREE.Object3D; x0: number; v: number }[] = [];
   private ripples: { o: THREE.Object3D; m: THREE.MeshBasicMaterial; ph: number; R: number }[] = [];
+  private walkers: Walker[] = [];
+  private faceTex = new Map<string, THREE.Texture>();
   private landGeo?: Record<string, any>;
   private tv = new THREE.Vector3();
   private pickables: THREE.Object3D[] = [];
@@ -202,7 +209,7 @@ export class MapScene {
 
   dispose() {
     cancelAnimationFrame(this.raf); this.ro.disconnect(); this.controls.dispose();
-    this.clearOwned(); Object.values(this.mats).forEach(m => m.dispose()); this.grad.dispose();
+    this.clearOwned(); Object.values(this.mats).forEach(m => m.dispose()); this.grad.dispose(); this.faceTex.forEach(t => t.dispose());
     if (this.landGeo) Object.values(this.landGeo).flat().forEach((g: any) => g?.dispose?.());
     this.renderer.dispose(); this.renderer.forceContextLoss(); this.renderer.domElement.remove();
   }
@@ -268,7 +275,7 @@ export class MapScene {
     const s = new THREE.Sprite(this.own(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }))); s.scale.set(90 * k, 90 * k, 1); return s;
   }
 
-  private island(p: PlaceCfg, o: { fresh?: number; fade?: boolean; q?: boolean; S?: number; pick?: Pick | null; label?: string | null; lockK?: number }) {
+  private island(p: PlaceCfg, o: { fresh?: number; fade?: boolean; q?: boolean; S?: number; pick?: Pick | null; label?: string | null; lockK?: number; walk?: boolean; walkH?: number }) {
     const G = new THREE.Group(), ig = this.islandGeo(p.shape), st = p.status, t0 = now();
     let top: THREE.Material, side: THREE.Material, line: THREE.Material | null = null;
     if (st === 'done') {
@@ -284,6 +291,7 @@ export class MapScene {
     if (line) { G.add(new THREE.Mesh(ig.top, line)); G.add(new THREE.Mesh(ig.bot, line)); }
     if (st !== 'done' || o.fade) { const dm = this.basic(st === 'locked' ? '#B5AA94' : INK); ig.dashes.forEach((d: THREE.BufferGeometry) => G.add(new THREE.Mesh(d, dm))); }
     if (st === 'done') this.decor(p, G, !!o.fade);
+    if (st === 'done' && o.walk) this.islandWalkers(p.theme, G, o.walkH || 100);
     if (o.pick) { mesh.userData.pick = o.pick; this.pickables.push(mesh); }
     if (st !== 'locked') p.pairs.forEach((pr, j) => {
       const slot = SLOTS[j % SLOTS.length]; if (!slot) return; const [u, v] = slot;
@@ -310,15 +318,16 @@ export class MapScene {
     if (p.theme === 'rooftop') { const m = this.toon('#C8573E'); [[-185, -60], [185, -50], [-150, 90], [170, 80]].forEach(([x, z]) => { const c = new THREE.Mesh(this.box ||= new THREE.BoxGeometry(16, 12, 16), m); c.scale.set(0.8, 2, 0.8); c.position.set(x, 15, z); G.add(c); }); }
   }
 
-  private month(places: PlaceCfg[], o: { pick?: boolean; labels?: boolean; lite?: boolean } = {}) {
-    const G = new THREE.Group();
+  private month(places: PlaceCfg[], o: { pick?: boolean; labels?: boolean; lite?: boolean; kind?: string } = {}) {
+    const G = new THREE.Group(), alive = places.length > 0 && places.every(p => p.status === 'done');
+    // the two of them stroll on a finished place while the map is in progress, and across the whole land once it is finished
+    const walkI = o.pick && !alive ? places.findIndex(p => p.status === 'done') : -1;
     places.forEach((p, i) => {
       const lbl = p.status === 'done' ? p.name : p.status === 'current' ? 'This week · ' + Math.max(0, 7 - p.pairs.length) + ' to go' : null;
-      const g = this.island(p, { label: o.labels !== false ? lbl : null, q: true, pick: o.pick && p.status !== 'locked' ? { type: 'place', pi: i } : null, lockK: 1.6 });
+      const g = this.island(p, { label: o.labels !== false ? lbl : null, q: true, pick: o.pick && p.status !== 'locked' ? { type: 'place', pi: i } : null, lockK: 1.6, walk: i === walkI, walkH: 80 });
       g.position.set(MPOS[i][0], 0, MPOS[i][1]); G.add(g);
     });
-    const alive = places.length > 0 && places.every(p => p.status === 'done');
-    if (alive) this.land(G, o.lite);
+    if (alive) { this.land(G, o.lite); if (o.pick) this.mapWalkers(o.kind || '', G, 74); }
     const pts = [[-760, -420], ...MPOS, [760, 520]].map(([x, z]) => new THREE.Vector3(x, alive ? -19 : -10, z));
     const curve = new THREE.CatmullRomCurve3(pts), n = Math.round(curve.getLength() / 34), dm = this.toon('#FFC93C');
     curve.getSpacedPoints(n).forEach(pt => { if (alive && !onLand(pt.x, pt.z)) return; const s = new THREE.Mesh(this.dot ||= new THREE.SphereGeometry(7, 10, 8), dm); s.position.copy(pt); G.add(s); });
@@ -389,6 +398,56 @@ export class MapScene {
     const s = new THREE.Sprite(this.own(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }))); s.scale.set(170, 170, 1); return s;
   }
 
+  // ---- the caricatures they drew of each other, walking around ----
+  private face(url: string, h: number) {
+    let tex = this.faceTex.get(url);
+    if (!tex) { tex = new THREE.TextureLoader().load(url); tex.colorSpace = THREE.SRGBColorSpace; this.faceTex.set(url, tex); }
+    const s = new THREE.Sprite(this.own(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, alphaTest: 0.04 })));
+    s.center.set(0.5, 0.04); s.scale.set(h, h, 1); s.renderOrder = 5; return s;
+  }
+  /** One of them walks a loop of stops, pausing at each to sniff, look or wave. */
+  private walker(G: THREE.Group, url: string, h: number, pts: Stop[], o: { v?: number; off?: number; hop?: boolean; y0?: number } = {}) {
+    const s = this.face(url, h), legs: Walker['legs'] = [], v = o.v || 40; let t0 = 0; G.add(s);
+    pts.forEach((a, i) => { const b = pts[(i + 1) % pts.length], d = Math.hypot(b.x - a.x, (b.y || 0) - (a.y || 0), b.z - a.z), dur = Math.max(0.01, d / v), pause = a.p || 0; legs.push({ a, b, t0, pause, dur }); t0 += pause + dur; });
+    this.walkers.push({ s, legs, total: t0, h, off: o.off || 0, face: 1, hop: !!o.hop, y0: o.y0 ?? 3 });
+  }
+  private islandWalkers(theme: string, G: THREE.Group, h: number) {
+    const W = this.cfg?.walkers; if (!W) return;
+    const P = (x: number, z: number, p: number, act: Stop['act'], f?: 1 | -1): Stop => ({ x, z, p, act, f });
+    if (theme === 'garden') {
+      // from flower to flower, stopping to smell each one (the green buds in decor())
+      const F = [P(-152, -30, 2.4, 'sniff', -1), P(-176, 50, 2.4, 'sniff', 1), P(-78, 80, 2.4, 'sniff', -1), P(62, 90, 2.4, 'sniff', -1), P(172, 60, 2.4, 'sniff', -1), P(132, -60, 2.4, 'sniff', 1), P(38, -90, 2.4, 'sniff', -1)];
+      this.walker(G, W.d, h, F, { v: 34 });
+      this.walker(G, W.a, h * 0.9, F.slice(3).concat(F.slice(0, 3)).map(q => ({ ...q, p: 1.4 })), { v: 62, hop: true, off: 1.5 });
+    } else if (theme === 'river') {
+      // along the bank, watching the water; the little one waves
+      this.walker(G, W.d, h, [P(-150, 88, 3, 'look', 1), P(-20, 92, 2.5, 'look', 1), P(120, 84, 3, 'look', -1)], { v: 30 });
+      this.walker(G, W.a, h * 0.9, [P(150, 96, 1.6, 'wave'), P(-40, 100, 0.8, 'look', -1), P(-170, 92, 1.6, 'wave'), P(30, 98, 0.8, 'look', 1)], { v: 70, hop: true, off: 2 });
+    } else {
+      const L = [P(-150, 60, 1.8, 'look', 1), P(0, 90, 1, null), P(150, 40, 1.8, 'look', -1), P(60, -60, 1, null), P(-100, -50, 1.8, 'look', 1)];
+      this.walker(G, W.d, h, L, { v: 34 });
+      this.walker(G, W.a, h * 0.9, L.slice(2).concat(L.slice(0, 2)), { v: 56, hop: true });
+    }
+  }
+  /** A finished map: on hilly maps they climb the big hill and wave from the top, elsewhere they walk round the pond. */
+  private mapWalkers(kind: string, G: THREE.Group, h: number) {
+    const W = this.cfg?.walkers; if (!W) return;
+    if (/hill|forest|desert/i.test(kind)) {
+      const [mx, mz, r, hh] = MTN[0], up: Stop[] = [];
+      for (let i = 0; i <= 8; i++) { const u = (i / 8) * 0.8, a = Math.PI * (0.88 - (i / 8) * 0.6), rad = r * (1 - u) + 10; up.push({ x: mx + Math.cos(a) * rad, z: mz + Math.sin(a) * rad, y: -26 + hh * u }); }
+      up[up.length - 1] = { ...up[up.length - 1], p: 3.2, act: 'wave' };
+      const route: Stop[] = [{ x: mx - 150, z: mz + 120, y: -26, p: 1.5, act: 'look', f: 1 }, ...up, ...up.slice(1, -1).reverse().map(q => ({ ...q }))];
+      this.walker(G, W.d, h, route, { v: 26, y0: 0 });
+      this.walker(G, W.a, h * 0.85, route, { v: 26, y0: 0, hop: true, off: 3.2 });
+    } else {
+      const [px, pz, pr] = POND, R = pr + 22, ring: Stop[] = [];
+      for (let i = 0; i < 6; i++) { const a = -Math.PI * 0.45 + (i / 5) * Math.PI * 0.9; ring.push({ x: px + Math.cos(a) * R, z: pz + Math.sin(a) * R, y: -26, p: i % 2 ? 0 : 2, act: i === 2 ? 'wave' : 'look', f: -1 }); }
+      const route = [...ring, ...ring.slice(1, -1).reverse().map(q => ({ ...q }))];
+      this.walker(G, W.d, h, route, { v: 22, y0: 0 });
+      this.walker(G, W.a, h * 0.85, route, { v: 22, y0: 0, hop: true, off: 4 });
+    }
+  }
+
   private board(m: MonthCfg, i: number) {
     const B = new THREE.Group(); B.userData.pick = { type: 'month', mi: i };
     const cream = this.toon('#FFF3D1', m.current ? 0.35 : 1), edge = this.toon('#E6CF92', m.current ? 0.3 : 1);
@@ -405,9 +464,9 @@ export class MapScene {
   private build(cfg: MapConfig) {
     this.cfg = cfg; this.root.clear(); this.clearOwned();
     this.items = []; this.tweens = []; this.anims = []; this.qs = []; this.pickables = [];
-    this.flows = []; this.sway = []; this.sheep = []; this.clouds = []; this.ripples = [];
-    if (cfg.mode === 'place') this.root.add(this.island(cfg.place, { fresh: cfg.fresh, fade: cfg.fade, q: true, S: 76 }));
-    else if (cfg.mode === 'month') this.root.add(this.month(cfg.places, { pick: true }));
+    this.flows = []; this.sway = []; this.sheep = []; this.clouds = []; this.ripples = []; this.walkers = [];
+    if (cfg.mode === 'place') this.root.add(this.island(cfg.place, { fresh: cfg.fresh, fade: cfg.fade, q: true, S: 76, walk: true }));
+    else if (cfg.mode === 'month') this.root.add(this.month(cfg.places, { pick: true, kind: cfg.kind }));
     else cfg.months.forEach((m, i) => { const b = this.board(m, i); b.position.y = -i * STEP; this.root.add(b); });
     this.frame(cfg.mode);
   }
@@ -498,6 +557,19 @@ export class MapScene {
     for (const s of this.sheep) { const k = t * A; s.o.position.set(s.cx + Math.sin(k * 0.15 + s.ph) * 28, -26 + Math.abs(Math.sin(k * 2 + s.ph)) * 2, s.cz + Math.cos(k * 0.12 + s.ph) * 18); s.o.rotation.y = Math.sin(k * 0.15 + s.ph) > 0 ? 0 : Math.PI; }
     for (const c of this.clouds) c.o.position.x = (((c.x0 + t * c.v * A + 900) % 1800) + 1800) % 1800 - 900;
     for (const r of this.ripples) { const k = (t * 0.25 * A + r.ph) % 1; r.o.scale.set(r.R * (0.3 + k * 0.65), 30, r.R * (0.3 + k * 0.65)); r.m.opacity = (1 - k) * 0.8; }
+    for (const w of this.walkers) {
+      const tt = (((t + w.off) % w.total) + w.total) % w.total, L = w.legs.find(l => tt < l.t0 + l.pause + l.dur) || w.legs[w.legs.length - 1], lt = tt - L.t0;
+      let x: number, y: number, z: number, mv = false, act: Stop['act'] = null, bob = 0, rot = 0;
+      if (lt < L.pause) { x = L.a.x; y = L.a.y || 0; z = L.a.z; act = L.a.act; if (L.a.f) w.face = L.a.f; }
+      else { const k = Math.min(1, (lt - L.pause) / L.dur); x = L.a.x + (L.b.x - L.a.x) * k; y = (L.a.y || 0) + ((L.b.y || 0) - (L.a.y || 0)) * k; z = L.a.z + (L.b.z - L.a.z) * k; mv = true; const dx = L.b.x - L.a.x; if (Math.abs(dx) > 2) w.face = dx > 0 ? 1 : -1; }
+      const ph = t * (w.hop ? 10 : 7) + w.off;
+      if (mv) { bob = Math.abs(Math.sin(ph)) * (w.hop ? 12 : 4); rot = Math.sin(ph) * 0.08; }
+      else if (act === 'sniff') { rot = -w.face * (0.32 + 0.05 * Math.sin(t * 5)); bob = Math.abs(Math.sin(t * 4)) * 1.5; }
+      else if (act === 'wave') { bob = Math.abs(Math.sin(t * 6)) * 14; rot = Math.sin(t * 6) * 0.1; }
+      else if (act === 'look') rot = -w.face * 0.14;
+      else rot = Math.sin(t * 1.5 + w.off) * 0.03;
+      w.s.position.set(x, y + w.y0 + bob * A, z); w.s.scale.x = w.h * w.face; w.s.material.rotation = rot * A;
+    }
     for (const q of this.qs) { q.material.opacity = 0.55 + 0.35 * Math.sin(t * 2.4); q.position.y = 150 + Math.sin(t * 1.2) * 6; }
     this.renderer.render(this.scene, this.camera);
   };

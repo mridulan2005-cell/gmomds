@@ -32,7 +32,7 @@ export function MapView({ route, go, dest }: { route: MapRoute; go: Go; dest: (d
     title = s.months.length > 1 ? 'All our maps' : 'Our map'; hint = s.months.length > 1 ? 'Scroll or drag to look through · tap a map to go inside' : 'Tap the map to go inside';
   } else if (route.screen === 'interior') {
     const m = s.months[route.mi] || s.months[0];
-    cfg = { mode: 'month', key: 'month-' + m.id, places: m.places.map(p => placeCfg(s, p)) };
+    cfg = { mode: 'month', key: 'month-' + m.id, places: m.places.map(p => placeCfg(s, p)), kind: m.name };
     title = m.name + (route.mi === 0 ? ' · in progress' : ''); hint = 'Drag to move around · two fingers to turn · tap a place to visit it';
     back = { label: 'All maps', to: { screen: 'stack' } };
   } else if (route.screen === 'place') {
@@ -61,6 +61,9 @@ export function MapView({ route, go, dest }: { route: MapRoute; go: Go; dest: (d
       },
     };
   }
+
+  // the caricatures they drew of each other walk around the finished places
+  if (cfg) cfg = { ...cfg, walkers: { d: s.faces.dadi, a: s.faces.child } };
 
   const onPick = useMemo(() => (pk: Pick) => {
     const st = getState();

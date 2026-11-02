@@ -5,6 +5,8 @@ import type { AppState, Drawing, Month, Pair, Place, PersonId, Prompt } from './
 import { LOVE_PROMPTS, THEMES, ICON, MAPS, EXAMPLE_PAIRS, guessFor, fillFor } from './content';
 
 const KEY = 'dadis-map:state';
+/** Placeholder caricatures, until they draw each other. */
+export const SKETCH = { dadi: import.meta.env.BASE_URL + 'sketch-dadi.png', child: import.meta.env.BASE_URL + 'sketch-aarav.png' };
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 export const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
@@ -43,7 +45,7 @@ function addExampleMaps(s: AppState) {
 }
 
 function fresh(): AppState {
-  const s: AppState = { version: 1, onboarded: false, names: { dadi: 'Sunita', child: 'Aarav' }, loves: { dadi: [], child: [] }, months: [newMonth(0)], drawings: {}, prompt: null, recentPrompts: [], scanning: null, lastFresh: null };
+  const s: AppState = { version: 1, onboarded: false, names: { dadi: 'Sunita', child: 'Aarav' }, loves: { dadi: [], child: [] }, faces: { ...SKETCH }, months: [newMonth(0)], drawings: {}, prompt: null, recentPrompts: [], scanning: null, lastFresh: null };
   addExampleMaps(s);
   return s;
 }
@@ -167,8 +169,8 @@ export function completePlace() {
   void ensurePrompt();
 }
 
-export function finishOnboarding(names: { dadi: string; child: string }, loves: { dadi: string[]; child: string[] }) {
-  update(s => { s.names = names; s.loves = loves; s.onboarded = true; });
+export function finishOnboarding(names: { dadi: string; child: string }, loves: { dadi: string[]; child: string[] }, faces: { dadi: string; child: string }) {
+  update(s => { s.names = names; s.loves = loves; s.faces = faces; s.onboarded = true; });
   void ensurePrompt();
 }
 

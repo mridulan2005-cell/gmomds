@@ -52,6 +52,10 @@ npm run fetch-model
 
 This saves the weights to `public/models/doodlenet/`.
 
+## Drawing each other
+
+Onboarding has four steps: Dadi picks what she loves, then draws the grandchild on a paper card with her finger; the grandchild picks, then draws Dadi (`src/screens/Onboarding.tsx`). The card starts with a placeholder sketch (`public/sketch-dadi.png`, `public/sketch-aarav.png`) that they can keep or clear with "Start over". The caricatures are kept in `faces` and walk around the maps as little paper cut-outs (`MapScene.walker`): on a garden place they go from flower to flower and stop to smell each one, by the river they watch the water and wave, and elsewhere they stroll. On a finished Hillside, Forest or Desert they climb the big hill and wave from the top; on other finished maps they walk round the pond.
+
 ## Data
 
 Everything is stored on the device in IndexedDB (`src/lib/store.ts`), following the data model in the handoff: people, loves, maps → places → pairs → drawings, with the paths stored rather than meshes. Scans are kept as JPEG blobs. There are no streaks or dates on the map, and a missed day carries the prompt over. Prompts come from Claude, using both people's picks and the hidden theme of the place, or from a curated list when Claude isn't available.

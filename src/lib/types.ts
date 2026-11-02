@@ -41,6 +41,8 @@ export interface AppState {
   onboarded: boolean;
   names: { dadi: string; child: string };
   loves: { dadi: string[]; child: string[] };
+  /** the caricatures they drew of each other (a PNG data URL, or the placeholder sketch); they walk around the maps */
+  faces: { dadi: string; child: string };
   months: Month[]; // maps (a town, a hillside…), newest first; months[0] is the map in progress
   drawings: Record<string, Drawing>;
   prompt: Prompt | null;
