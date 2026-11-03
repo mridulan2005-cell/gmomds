@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { MapScene, type MapConfig, type Pick } from './map/MapScene';
+import { MapScene, type MapConfig, type Pick, type Pov } from './map/MapScene';
 import { artUrl, scanUrl } from './lib/store';
 import type { Drawing } from './lib/types';
 import { inkOf } from './lib/content';
@@ -65,17 +65,18 @@ export function ScanPhoto({ d, rot }: { d: Drawing; rot: number }) {
   );
 }
 
-export function Map3D({ config, onPick, reducedMotion }: { config: MapConfig; onPick?: (p: Pick) => void; reducedMotion: boolean }) {
-  const host = useRef<HTMLDivElement>(null), scene = useRef<MapScene | null>(null), pickRef = useRef(onPick);
+export function Map3D({ config, onPick, reducedMotion, pov = null, onPov }: { config: MapConfig; onPick?: (p: Pick) => void; reducedMotion: boolean; pov?: Pov; onPov?: (who: Pov) => void }) {
+  const host = useRef<HTMLDivElement>(null), scene = useRef<MapScene | null>(null), pickRef = useRef(onPick), povRef = useRef(onPov);
   const [failed, setFailed] = useState(false);
-  pickRef.current = onPick;
+  pickRef.current = onPick; povRef.current = onPov;
   useEffect(() => {
     try {
-      const s = new MapScene(host.current!); scene.current = s; s.artLoader = artUrl; s.onPick = p => pickRef.current?.(p);
+      const s = new MapScene(host.current!); scene.current = s; s.artLoader = artUrl; s.onPick = p => pickRef.current?.(p); s.onPov = w => povRef.current?.(w);
     } catch (e) { console.error(e); setFailed(true); }
     return () => { scene.current?.dispose(); scene.current = null; };
   }, []);
   useEffect(() => { const s = scene.current; if (!s) return; s.reducedMotion = reducedMotion; s.setConfig(config); }, [config, reducedMotion]);
+  useEffect(() => { scene.current?.setPov(pov, true); }, [pov]);
   return <div ref={host} className="map-canvas">{failed && <div className="loading3d">3D isn't available on this device.</div>}</div>;
 }
 

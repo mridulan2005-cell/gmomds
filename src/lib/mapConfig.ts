@@ -3,7 +3,7 @@ import type { DrawCfg, MonthCfg, PlaceCfg } from '../map/MapScene';
 
 export function drawCfg(d: Drawing | undefined): DrawCfg | null {
   if (!d) return null;
-  return { id: d.id, f: d.paths.f, s: d.paths.s, fc: d.paths.fc, fill: d.fillColor, owner: d.personId === 'dadi' ? 'd' : 'a', motion: d.motion, place: d.place, sil: d.paths.sil, artBox: d.paths.artBox, art: !!d.hasArt };
+  return { id: d.id, f: d.paths.f, s: d.paths.s, fc: d.paths.fc, fill: d.fillColor, owner: d.personId === 'dadi' ? 'd' : 'a', motion: d.motion, place: d.place, sil: d.paths.sil, artBox: d.paths.artBox, art: !!d.hasArt, kind: d.kind, label: d.label };
 }
 
 export function placeCfg(s: AppState, p: Place, status = p.status): PlaceCfg {

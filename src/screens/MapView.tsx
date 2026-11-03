@@ -3,8 +3,8 @@ import { useReducedMotion, type Go, type Route } from '../App';
 import { Arrow, Back, Dock, Map3D, Cloud, type Dest } from '../components';
 import { clearFresh, completePlace, currentPlace, getState, placeById, useApp } from '../lib/store';
 import { placeCfg, stackCfg } from '../lib/mapConfig';
-import type { MapConfig, Pick } from '../map/MapScene';
-import { ORANGE, SUN } from '../lib/content';
+import type { MapConfig, Pick, Pov } from '../map/MapScene';
+import { CHILD, DADI, ORANGE, SUN } from '../lib/content';
 
 type MapRoute = Extract<Route, { screen: 'stack' | 'interior' | 'place' | 'reveal' }>;
 
@@ -16,6 +16,8 @@ export function MapView({ route, go, dest }: { route: MapRoute; go: Go; dest: (d
 
   // reveal: ghost → solid colour, then the name, then the button
   const [stage, setStage] = useState(0);
+  // whose eyes the map is seen through (null: from above)
+  const [pov, setPov] = useState<Pov>(null);
   const [revealPlace] = useState(() => (route.screen === 'reveal' ? currentPlace(getState()) : undefined));
   useEffect(() => {
     if (route.screen !== 'reveal') return;
@@ -63,7 +65,11 @@ export function MapView({ route, go, dest }: { route: MapRoute; go: Go; dest: (d
   }
 
   // the caricatures they drew of each other walk around the finished places
-  if (cfg) cfg = { ...cfg, walkers: { d: s.faces.dadi, a: s.faces.child } };
+  if (cfg) cfg = { ...cfg, walkers: { d: s.faces.dadi, a: s.faces.child }, names: { d: s.names.dadi, a: s.names.child } };
+  // ...and the map can be seen through either one's eyes
+  const povAvail = (route.screen === 'place' && stepper?.done && fresh < 0) || (route.screen === 'interior' && (s.months[route.mi] || s.months[0]).places.some(p => p.status === 'done'));
+  const who = (w: 'd' | 'a') => w === 'd' ? { name: s.names.dadi, face: s.faces.dadi, color: DADI } : { name: s.names.child, face: s.faces.child, color: CHILD };
+  const me = pov && who(pov), other = pov && who(pov === 'd' ? 'a' : 'd');
 
   const onPick = useMemo(() => (pk: Pick) => {
     const st = getState();
@@ -71,14 +77,37 @@ export function MapView({ route, go, dest }: { route: MapRoute; go: Go; dest: (d
     else if (route.screen === 'interior') { const m = st.months[route.mi]; const pl = m?.places[pk.pi]; if (pl && pl.status !== 'locked') go({ screen: 'place', placeId: pl.id }); }
   }, [route]);
 
-  const showDock = route.screen !== 'reveal' && !action;
+  const showDock = route.screen !== 'reveal' && !action && !pov;
   return (
     <div className="screen mapbg">
       <Cloud fill="#E6F6F3" style={{ left: 60, top: 110, animation: 'drift 45s ease-in-out infinite alternate' }} />
       <Cloud fill="#E6F6F3" w={240} style={{ right: 140, top: 150, animation: 'drift 60s ease-in-out infinite alternate-reverse' }} />
-      {cfg && <Map3D config={cfg} onPick={onPick} reducedMotion={reduced} />}
-      <div className="map-title"><div className="t">{title}</div>{hint && <div className="h">{hint}</div>}</div>
-      {stepper && (
+      {cfg && <Map3D config={cfg} onPick={onPick} reducedMotion={reduced} pov={pov} onPov={setPov} />}
+      {!pov && <div className="map-title"><div className="t">{title}</div>{hint && <div className="h">{hint}</div>}</div>}
+      {povAvail && !pov && (
+        <div className="pov-chips">
+          <div className="k">Walk around as</div>
+          <div style={{ display: 'flex', gap: 12 }}>
+            {(['d', 'a'] as const).map(w => { const p = who(w); return (
+              <button key={w} className="pov-btn" style={{ color: p.color }} onClick={() => setPov(w)}>
+                <span className="face" style={{ backgroundImage: `url(${p.face})`, boxShadow: `inset 0 0 0 3px ${p.color}` }} />{p.name}
+              </button>
+            ); })}
+          </div>
+          <div className="h">or tap one of them on the map</div>
+        </div>
+      )}
+      {me && other && (
+        <>
+          <button className="btn-cream back" onClick={() => setPov(null)}><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="#F26A2E" strokeWidth="3.8" strokeLinecap="round"><path d="M4 4 L16 16 M16 4 L4 16" /></svg>Exit</button>
+          <div className="pov-you" style={{ background: me.color }}><span className="face" style={{ backgroundImage: `url(${me.face})` }} />You are {me.name}</div>
+          <button className="pov-btn pov-switch" style={{ color: other.color }} onClick={() => setPov(pov === 'd' ? 'a' : 'd')}>
+            <span className="face" style={{ backgroundImage: `url(${other.face})`, boxShadow: `inset 0 0 0 3px ${other.color}` }} />Switch to {other.name}
+          </button>
+          <div className="pov-help"><span>Joystick to walk · drag to look around</span><span style={{ opacity: 0.65 }}>Tap a drawing, a flower or {other.name}</span></div>
+        </>
+      )}
+      {stepper && !pov && (
         <div className="stepper-card">
           <div style={{ display: 'flex', alignItems: 'center' }}>
             {Array.from({ length: 7 }, (_, k) => {
@@ -95,8 +124,8 @@ export function MapView({ route, go, dest }: { route: MapRoute; go: Go; dest: (d
           {bookBtn && <button className="btn-primary" style={{ height: 46, padding: '0 18px', fontSize: 17, boxShadow: '0 5px 0 #B9481B', rotate: '0deg' }} onClick={() => go({ screen: 'book', placeId: bookBtn! })}>In our scrapbook</button>}
         </div>
       )}
-      {action && <div className="place-btn"><button className="btn-primary" style={{ height: 84, fontSize: 30 }} onClick={action.run}><Arrow />{action.label}</button></div>}
-      {back && <Back label={back.label} onClick={() => go(back!.to)} />}
+      {action && !pov && <div className="place-btn"><button className="btn-primary" style={{ height: 84, fontSize: 30 }} onClick={action.run}><Arrow />{action.label}</button></div>}
+      {back && !pov && <Back label={back.label} onClick={() => go(back!.to)} />}
       {showDock && <Dock items={['home', 'book']} go={dest} />}
     </div>
   );

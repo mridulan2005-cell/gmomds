@@ -4,6 +4,7 @@
 //  - animation is driven by the recognised `motion` and `place`, not a fixed kind table
 //  - strokes that sit inside a puffy region are drawn on both faces so they stay visible
 //  - reduced-motion support, explicit dispose, a pick callback instead of a window global
+//  - tap Dadi or the grandchild (or setPov) to walk around through their eyes: joystick / WASD to walk, drag to look
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js';
@@ -13,6 +14,8 @@ export interface DrawCfg {
   id: string; f: string[]; s: string[]; fc?: (string | null)[]; fill: string; owner: 'd' | 'a'; motion: Motion; place: Spot;
   /** exact cut-out of the drawing + where its image sits; when present the drawing is shown exactly as drawn */
   sil?: { outer: string[]; holes: string[] }; artBox?: [number, number, number, number]; art?: boolean;
+  /** what it is ("cat", "a ginger cat"), for what they say when it is tapped */
+  kind?: string; label?: string;
 }
 export interface PlaceCfg { name: string; shape: string; color: string; theme: string; status: 'locked' | 'current' | 'done'; pairs: [DrawCfg, DrawCfg][] }
 export interface MonthCfg { name: string; current: boolean; places: PlaceCfg[] }
@@ -22,8 +25,10 @@ export type MapConfig = (
   | { mode: 'place'; key: string; place: PlaceCfg; fresh?: number; fade?: boolean }
   | { mode: 'month'; key: string; places: PlaceCfg[]; kind?: string }
   | { mode: 'stack'; key: string; months: MonthCfg[] }
-) & { walkers?: Walkers };
+) & { walkers?: Walkers; names?: { d: string; a: string } };
 export type Pick = { type: 'place'; pi: number } | { type: 'month'; mi: number };
+/** whose eyes the map is seen through: d = Dadi, a = the grandchild, null = the usual view from above */
+export type Pov = 'd' | 'a' | null;
 
 const DADI = '#2F5FD0', CHILD = '#E4572E', INK = '#3d2b22', DEPTH = 6, BT = 2.4, STEP = 900;
 const SLOTS = [[120, 110], [245, 100], [370, 110], [90, 205], [200, 212], [310, 205], [420, 200]];
@@ -34,6 +39,11 @@ const RIV = [[-30, -620], [10, -330], [-40, -60], [30, 180], [-20, 420], [10, 66
 const MTN = [[655, -200, 80, 150], [-655, -10, 64, 120], [580, -370, 58, 105]];
 const POND = [575, 60, 52];
 function onLand(x: number, z: number) { let c = false; for (let i = 0, j = LAND.length - 1; i < LAND.length; j = i++) { const [xi, zi] = LAND[i], [xj, zj] = LAND[j]; if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) c = !c; } return c; }
+/** height of the land (with its hills) at a spot */
+function terrain(x: number, z: number) { let y = -26; for (const [mx, mz, r, hh] of MTN) { const d = Math.hypot(x - mx, z - mz); if (d < r) y = Math.max(y, -26 + hh * (1 - d / r)); } return y; }
+const inRing = (poly: number[][], x: number, z: number) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, zi] = poly[i], [xj, zj] = poly[j]; if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) c = !c; } return c; };
+/** what they say when you tap something while walking around */
+const SAY: Record<string, string> = { cat: 'Meow!', bird: 'Tweet tweet!', fish: 'Splash!', mango: 'Yum, a mango!', flower: 'Mmm, smells lovely!', tree: 'What a big tree!', sun: 'So warm!', moon: 'Hello, moon!', diya: 'So bright!', kite: 'Up it goes!', bell: 'Ding ding!', drum: 'Dum dum!', note: 'La la la!', boat: 'Ahoy!', waves: 'Whoosh!', chai: 'Mmm, chai!' };
 function riverX(z: number) { for (let i = 1; i < RIV.length; i++) if (z <= RIV[i][1]) { const [x0, z0] = RIV[i - 1], [x1, z1] = RIV[i]; return x0 + ((x1 - x0) * (z - z0)) / (z1 - z0); } return RIV[RIV.length - 1][0]; }
 export const SHAPES: Record<string, string> = {
   A: 'M20 120 Q40 60 120 70 Q200 80 250 50 Q330 20 400 60 Q470 90 460 160 Q450 230 370 225 Q290 220 230 245 Q140 270 70 235 Q10 200 20 120 Z',
@@ -130,8 +140,14 @@ export function drawingGeo(d: DrawCfg): DrawGeo {
 }
 
 type Stop = { x: number; z: number; y?: number; p?: number; act?: 'sniff' | 'look' | 'wave' | null; f?: 1 | -1 };
-interface Walker { s: THREE.Sprite; legs: { a: Stop; b: Stop; t0: number; pause: number; dur: number }[]; total: number; h: number; off: number; face: number; hop: boolean; y0: number }
-interface Item { d: DrawCfg; base: THREE.Group; mover: THREE.Group; sc: THREE.Group; inner: THREE.Group; oa: THREE.Group; ob: THREE.Group; sh: THREE.Mesh; S: number; ph: number; rise: number }
+/** ground height where they may stand (in the walker's group), or null where they can't */
+type Ground = (x: number, z: number) => number | null;
+interface Walker {
+  s: THREE.Sprite; G: THREE.Group; who: 'd' | 'a'; legs: { a: Stop; b: Stop; t0: number; pause: number; dur: number }[]; total: number; h: number; off: number; face: number; hop: boolean; y0: number;
+  ground: Ground; speed: number; waveUntil: number; parked: { x: number; z: number; y: number } | null;
+}
+interface Item { d: DrawCfg; base: THREE.Group; mover: THREE.Group; sc: THREE.Group; inner: THREE.Group; oa: THREE.Group; ob: THREE.Group; sh: THREE.Mesh; S: number; ph: number; rise: number; pop: number }
+interface PovState { w: Walker; x: number; z: number; gy: number; yaw: number; pitch: number; t0: number; sp: THREE.Vector3; sq: THREE.Quaternion; sf: number; walkT: number }
 
 export class MapScene {
   private el: HTMLElement;
@@ -153,6 +169,12 @@ export class MapScene {
   private clouds: { o: THREE.Object3D; x0: number; v: number }[] = [];
   private ripples: { o: THREE.Object3D; m: THREE.MeshBasicMaterial; ph: number; R: number }[] = [];
   private walkers: Walker[] = [];
+  private plants: THREE.Mesh[] = [];
+  private huds: THREE.Object3D[] = [];
+  private bubbles: { s: THREE.Sprite; t0: number; y0: number; dead?: boolean }[] = [];
+  private pov: PovState | null = null;
+  private joy = { x: 0, y: 0 }; private keys = new Set<string>(); private joyEl: HTMLDivElement; private lt = 0;
+  private eye = new THREE.Vector3(); private look = new THREE.Vector3(); private dc = new THREE.PerspectiveCamera();
   private faceTex = new Map<string, THREE.Texture>();
   private landGeo?: Record<string, any>;
   private tv = new THREE.Vector3();
@@ -162,6 +184,8 @@ export class MapScene {
   private raf = 0; private clock = new THREE.Clock(); private ro: ResizeObserver;
   private disc?: THREE.CircleGeometry; private dot?: THREE.SphereGeometry; private cone?: THREE.ConeGeometry; private box?: THREE.BoxGeometry; private slabGeo?: THREE.BoxGeometry;
   onPick: (p: Pick) => void = () => {};
+  /** someone was tapped on the map (or the view went back to normal) */
+  onPov: (who: Pov) => void = () => {};
   /** where to find each drawing's own image (an object URL from IndexedDB) */
   artLoader?: (id: string) => Promise<string | null>;
   reducedMotion = false;
@@ -186,29 +210,54 @@ export class MapScene {
     const gm = new THREE.DataTexture(new Uint8Array([120, 195, 255]), 3, 1, THREE.RedFormat); gm.minFilter = gm.magFilter = THREE.NearestFilter; gm.needsUpdate = true; this.grad = gm;
     this.ro = new ResizeObserver(() => this.resize()); this.ro.observe(el); this.resize();
     const cv = r.domElement, fingers = new Set<number>();
-    let down: { x: number; y: number; sy: number; moved: boolean; ground: THREE.Vector3 | null } | null = null;
+    let down: { x: number; y: number; lx: number; ly: number; sy: number; moved: boolean; ground: THREE.Vector3 | null } | null = null;
     cv.addEventListener('pointerdown', e => {
       fingers.add(e.pointerId);
       // a second finger turns and zooms instead; a tap still picks
-      down = fingers.size === 1 && e.button === 0 ? { x: e.clientX, y: e.clientY, sy: this.stackTarget, moved: false, ground: this.groundAt(e) } : null;
+      down = fingers.size === 1 && e.button === 0 ? { x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, sy: this.stackTarget, moved: false, ground: this.pov ? null : this.groundAt(e) } : null;
+      if (this.pov && down) cv.setPointerCapture(e.pointerId);
     });
     cv.addEventListener('pointermove', e => {
       if (!down || fingers.size !== 1) return; const dx = e.clientX - down.x, dy = e.clientY - down.y; if (Math.hypot(dx, dy) > 8) down.moved = true;
+      // through someone's eyes, dragging looks around
+      if (this.pov) { const P = this.pov; P.yaw -= (e.clientX - down.lx) * 0.006; P.pitch = clamp(P.pitch - (e.clientY - down.ly) * 0.005, -0.85, 0.85); down.lx = e.clientX; down.ly = e.clientY; return; }
       if (this.mode === 'stack') { const k = this.el.clientHeight / (cv.getBoundingClientRect().height || 1); this.stackTarget = this.clampStack(down.sy + dy * k * 2.4); return; }
       // the spot of ground under the finger stays under the finger
       const g = this.groundAt(e); if (!down.ground || !g || !down.moved) return;
       const shift = down.ground.clone().sub(g); shift.y = 0;
       this.controls.target.add(shift); this.camera.position.add(shift); this.keepInView();
     });
-    const up = (e: PointerEvent) => { fingers.delete(e.pointerId); if (e.type === 'pointerup' && down && !down.moved) this.pick(e); down = null; };
+    const up = (e: PointerEvent) => { fingers.delete(e.pointerId); if (e.type === 'pointerup' && down && !down.moved) { if (this.pov) this.povPick(e); else this.pick(e); } down = null; };
     cv.addEventListener('pointerup', up);
     cv.addEventListener('pointercancel', up);
     cv.addEventListener('wheel', e => { if (this.mode !== 'stack') return; e.preventDefault(); this.stackTarget = this.clampStack(this.stackTarget - e.deltaY * 1.4); }, { passive: false });
+    // the joystick for walking around through someone's eyes
+    const J = document.createElement('div'); J.className = 'joystick';
+    J.innerHTML = '<svg viewBox="0 0 190 190" fill="none" stroke="#E0A25E" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><path d="M83 26 L95 14 L107 26"/><path d="M83 164 L95 176 L107 164"/><path d="M26 83 L14 95 L26 107"/><path d="M164 83 L176 95 L164 107"/></svg>';
+    const K = document.createElement('div'); K.className = 'knob'; J.appendChild(K); el.appendChild(J); this.joyEl = J;
+    const jmove = (e: PointerEvent) => {
+      const r = J.getBoundingClientRect(), R = r.width * 0.34; let dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2); const d = Math.hypot(dx, dy);
+      if (d > R) { dx *= R / d; dy *= R / d; }
+      this.joy = { x: dx / R, y: -dy / R }; const k = J.offsetWidth / r.width; K.style.transform = `translate(${dx * k}px,${dy * k}px)`;
+    };
+    let jid: number | null = null;
+    J.addEventListener('pointerdown', e => { e.stopPropagation(); jid = e.pointerId; J.setPointerCapture(e.pointerId); jmove(e); });
+    J.addEventListener('pointermove', e => { if (e.pointerId === jid) jmove(e); });
+    const jend = (e: PointerEvent) => { if (e.pointerId !== jid) return; jid = null; this.joy = { x: 0, y: 0 }; K.style.transform = ''; };
+    J.addEventListener('pointerup', jend); J.addEventListener('pointercancel', jend);
+    addEventListener('keydown', this.onKey); addEventListener('keyup', this.onKey);
     this.loop();
   }
 
+  /** WASD / arrow keys walk, Q / E turn */
+  private onKey = (e: KeyboardEvent) => {
+    if (!this.pov) return; const k = e.key.toLowerCase();
+    if (e.type === 'keydown') { this.keys.add(k); if (k.startsWith('arrow')) e.preventDefault(); } else this.keys.delete(k);
+  };
+
   dispose() {
     cancelAnimationFrame(this.raf); this.ro.disconnect(); this.controls.dispose();
+    removeEventListener('keydown', this.onKey); removeEventListener('keyup', this.onKey); this.joyEl.remove();
     this.clearOwned(); Object.values(this.mats).forEach(m => m.dispose()); this.grad.dispose(); this.faceTex.forEach(t => t.dispose());
     if (this.landGeo) Object.values(this.landGeo).flat().forEach((g: any) => g?.dispose?.());
     this.renderer.dispose(); this.renderer.forceContextLoss(); this.renderer.domElement.remove();
@@ -240,7 +289,8 @@ export class MapScene {
     if (!cut) { g.a.forEach(x => oa.add(new THREE.Mesh(x, lm))); g.b.forEach(x => ob.add(new THREE.Mesh(x, lm))); } ob.visible = false; inner.add(oa, ob);
     sc.scale.setScalar(riseAt ? 0.0001 : S / 64);
     const sh = new THREE.Mesh(this.disc ||= new THREE.CircleGeometry(1, 24), this.basic(INK, 0.13)); sh.rotation.x = -Math.PI / 2; sh.scale.setScalar(S * 0.3); sh.position.y = 0.8; base.add(sh);
-    this.items.push({ d, base, mover, sc, inner, oa, ob, sh, S, ph: (hashSeed(d.id) % 628) / 100, rise: riseAt });
+    const it: Item = { d, base, mover, sc, inner, oa, ob, sh, S, ph: (hashSeed(d.id) % 628) / 100, rise: riseAt, pop: 0 };
+    base.userData.item = it; this.items.push(it);
     return base;
   }
 
@@ -254,7 +304,8 @@ export class MapScene {
     const bot = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts.map(p => new THREE.Vector3(p.x, -25.4, p.z)), true), 200, 1.6, 5, true);
     const sp = curve.getSpacedPoints(120), dashes: THREE.BufferGeometry[] = [];
     for (let i = 0; i < 120; i += 2) dashes.push(new THREE.TubeGeometry(new THREE.LineCurve3(sp[i], sp[i + 1]), 1, 2, 5, false));
-    const out = { geo, top, bot, dashes }; ISLAND_CACHE.set(shape, out); return out;
+    const poly = sh.getPoints(60).map(p => [p.x - 240, p.y - 140]);
+    const out = { geo, top, bot, dashes, poly }; ISLAND_CACHE.set(shape, out); return out;
   }
 
   private sprite(text: string, o: { size?: number; pill?: boolean; bg?: string; color?: string; k?: number } = {}) {
@@ -291,7 +342,7 @@ export class MapScene {
     if (line) { G.add(new THREE.Mesh(ig.top, line)); G.add(new THREE.Mesh(ig.bot, line)); }
     if (st !== 'done' || o.fade) { const dm = this.basic(st === 'locked' ? '#B5AA94' : INK); ig.dashes.forEach((d: THREE.BufferGeometry) => G.add(new THREE.Mesh(d, dm))); }
     if (st === 'done') this.decor(p, G, !!o.fade);
-    if (st === 'done' && o.walk) this.islandWalkers(p.theme, G, o.walkH || 100);
+    if (st === 'done' && o.walk) this.islandWalkers(p.theme, G, o.walkH || 100, ig.poly);
     if (o.pick) { mesh.userData.pick = o.pick; this.pickables.push(mesh); }
     if (st !== 'locked') p.pairs.forEach((pr, j) => {
       const slot = SLOTS[j % SLOTS.length]; if (!slot) return; const [u, v] = slot;
@@ -303,7 +354,7 @@ export class MapScene {
     });
     if (st === 'current' && o.q) { const q = this.sprite('?', { size: 150, color: '#8E7FD0' }); q.position.set(0, 150, 0); G.add(q); this.qs.push(q); }
     if (st === 'locked') { const l = this.lockSprite(o.lockK || 1.4); l.position.set(0, 70, 0); G.add(l); }
-    if (o.label) { const s = this.sprite(o.label, { size: 46, pill: true, bg: st === 'done' ? INK : '#FFF3D1', color: st === 'done' ? '#FFF3D1' : INK, k: 1.25 }); s.position.set(0, 215, -60); s.material.depthTest = false; s.renderOrder = 999; G.add(s); }
+    if (o.label) { const s = this.sprite(o.label, { size: 46, pill: true, bg: st === 'done' ? INK : '#FFF3D1', color: st === 'done' ? '#FFF3D1' : INK, k: 1.25 }); s.position.set(0, 215, -60); s.material.depthTest = false; s.renderOrder = 999; G.add(s); this.huds.push(s); }
     return G;
   }
 
@@ -313,7 +364,7 @@ export class MapScene {
       const m = fade ? fadeIn(this.own(new THREE.MeshBasicMaterial({ color: '#ffffff' }))) : this.basic('#ffffff');
       [-40, 10, 60].forEach((z, i) => { const pts: THREE.Vector3[] = []; for (let x = -150; x <= 150; x += 10) pts.push(new THREE.Vector3(x, 5, z + Math.sin(x / 16) * 6)); const w = new THREE.Mesh(this.own(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 60, 2.2, 5, false)), m); G.add(w); this.anims.push({ o: w, i }); });
     }
-    if (p.theme === 'garden') { const m = this.toon('#4E9F3D'); [[-170, -30], [150, -60], [-60, 80], [190, 60], [20, -90], [-190, 50], [80, 90]].forEach(([x, z]) => { const c = new THREE.Mesh(this.cone ||= new THREE.ConeGeometry(6, 16, 6), m); c.position.set(x, 11, z); G.add(c); }); }
+    if (p.theme === 'garden') { const m = this.toon('#4E9F3D'); [[-170, -30], [150, -60], [-60, 80], [190, 60], [20, -90], [-190, 50], [80, 90]].forEach(([x, z]) => { const c = new THREE.Mesh(this.cone ||= new THREE.ConeGeometry(6, 16, 6), m); c.position.set(x, 11, z); G.add(c); c.userData.plant = { pop: 0 }; this.plants.push(c); }); }
     if (p.theme === 'market') { ['#F26A2E', '#E9A3C0', '#8FD6D0', '#FFC93C', '#9BD770'].forEach((col, i) => { const c = new THREE.Mesh(this.box ||= new THREE.BoxGeometry(16, 12, 16), this.toon(col)); c.position.set(-180 + i * 90, 9, i % 2 ? -95 : 95); c.rotation.y = i * 0.5; G.add(c); }); }
     if (p.theme === 'rooftop') { const m = this.toon('#C8573E'); [[-185, -60], [185, -50], [-150, 90], [170, 80]].forEach(([x, z]) => { const c = new THREE.Mesh(this.box ||= new THREE.BoxGeometry(16, 12, 16), m); c.scale.set(0.8, 2, 0.8); c.position.set(x, 15, z); G.add(c); }); }
   }
@@ -386,7 +437,7 @@ export class MapScene {
       const cl = new THREE.Group(); [[0, 0, 30], [30, 6, 24], [-28, 2, 22], [10, 16, 22]].forEach(([dx, dy, r]) => { const p = new THREE.Mesh(c.puff, this.toon('#ffffff')); p.scale.setScalar(r); p.position.set(dx, dy, 0); cl.add(p); });
       const x0 = -900 + i * 470; cl.position.set(x0, 250 + (i % 2) * 50, -360 + i * 240); G.add(cl); this.clouds.push({ o: cl, x0, v: 12 + i * 3 });
     }
-    const cp = this.compass(); cp.position.set(640, 0, 580); G.add(cp);
+    const cp = this.compass(); cp.position.set(640, 0, 580); G.add(cp); this.huds.push(cp);
   }
 
   private compass() {
@@ -406,45 +457,50 @@ export class MapScene {
     s.center.set(0.5, 0.04); s.scale.set(h, h, 1); s.renderOrder = 5; return s;
   }
   /** One of them walks a loop of stops, pausing at each to sniff, look or wave. */
-  private walker(G: THREE.Group, url: string, h: number, pts: Stop[], o: { v?: number; off?: number; hop?: boolean; y0?: number } = {}) {
-    const s = this.face(url, h), legs: Walker['legs'] = [], v = o.v || 40; let t0 = 0; G.add(s);
+  private walker(G: THREE.Group, who: 'd' | 'a', h: number, pts: Stop[], o: { v?: number; off?: number; hop?: boolean; y0?: number; ground: Ground; speed?: number }) {
+    const s = this.face(this.cfg!.walkers![who], h), legs: Walker['legs'] = [], v = o.v || 40; let t0 = 0; G.add(s);
     pts.forEach((a, i) => { const b = pts[(i + 1) % pts.length], d = Math.hypot(b.x - a.x, (b.y || 0) - (a.y || 0), b.z - a.z), dur = Math.max(0.01, d / v), pause = a.p || 0; legs.push({ a, b, t0, pause, dur }); t0 += pause + dur; });
-    this.walkers.push({ s, legs, total: t0, h, off: o.off || 0, face: 1, hop: !!o.hop, y0: o.y0 ?? 3 });
+    const w: Walker = { s, G, who, legs, total: t0, h, off: o.off || 0, face: 1, hop: !!o.hop, y0: o.y0 ?? 3, ground: o.ground, speed: o.speed || 140, waveUntil: 0, parked: null };
+    s.userData.walker = w; this.pickables.push(s); this.walkers.push(w);
   }
-  private islandWalkers(theme: string, G: THREE.Group, h: number) {
-    const W = this.cfg?.walkers; if (!W) return;
+  private islandWalkers(theme: string, G: THREE.Group, h: number, poly: number[][]) {
+    if (!this.cfg?.walkers) return;
     const P = (x: number, z: number, p: number, act: Stop['act'], f?: 1 | -1): Stop => ({ x, z, p, act, f });
+    // walking around, they keep a step away from the island's edge
+    const m = 22, ground: Ground = (x, z) => [[0, 0], [m, 0], [-m, 0], [0, m], [0, -m]].every(([dx, dz]) => inRing(poly, x + dx, z + dz)) ? 0 : null;
     if (theme === 'garden') {
       // from flower to flower, stopping to smell each one (the green buds in decor())
       const F = [P(-152, -30, 2.4, 'sniff', -1), P(-176, 50, 2.4, 'sniff', 1), P(-78, 80, 2.4, 'sniff', -1), P(62, 90, 2.4, 'sniff', -1), P(172, 60, 2.4, 'sniff', -1), P(132, -60, 2.4, 'sniff', 1), P(38, -90, 2.4, 'sniff', -1)];
-      this.walker(G, W.d, h, F, { v: 34 });
-      this.walker(G, W.a, h * 0.9, F.slice(3).concat(F.slice(0, 3)).map(q => ({ ...q, p: 1.4 })), { v: 62, hop: true, off: 1.5 });
+      this.walker(G, 'd', h, F, { v: 34, ground });
+      this.walker(G, 'a', h * 0.9, F.slice(3).concat(F.slice(0, 3)).map(q => ({ ...q, p: 1.4 })), { v: 62, hop: true, off: 1.5, ground });
     } else if (theme === 'river') {
       // along the bank, watching the water; the little one waves
-      this.walker(G, W.d, h, [P(-150, 88, 3, 'look', 1), P(-20, 92, 2.5, 'look', 1), P(120, 84, 3, 'look', -1)], { v: 30 });
-      this.walker(G, W.a, h * 0.9, [P(150, 96, 1.6, 'wave'), P(-40, 100, 0.8, 'look', -1), P(-170, 92, 1.6, 'wave'), P(30, 98, 0.8, 'look', 1)], { v: 70, hop: true, off: 2 });
+      this.walker(G, 'd', h, [P(-150, 88, 3, 'look', 1), P(-20, 92, 2.5, 'look', 1), P(120, 84, 3, 'look', -1)], { v: 30, ground });
+      this.walker(G, 'a', h * 0.9, [P(150, 96, 1.6, 'wave'), P(-40, 100, 0.8, 'look', -1), P(-170, 92, 1.6, 'wave'), P(30, 98, 0.8, 'look', 1)], { v: 70, hop: true, off: 2, ground });
     } else {
       const L = [P(-150, 60, 1.8, 'look', 1), P(0, 90, 1, null), P(150, 40, 1.8, 'look', -1), P(60, -60, 1, null), P(-100, -50, 1.8, 'look', 1)];
-      this.walker(G, W.d, h, L, { v: 34 });
-      this.walker(G, W.a, h * 0.9, L.slice(2).concat(L.slice(0, 2)), { v: 56, hop: true });
+      this.walker(G, 'd', h, L, { v: 34, ground });
+      this.walker(G, 'a', h * 0.9, L.slice(2).concat(L.slice(0, 2)), { v: 56, hop: true, ground });
     }
   }
   /** A finished map: on hilly maps they climb the big hill and wave from the top, elsewhere they walk round the pond. */
   private mapWalkers(kind: string, G: THREE.Group, h: number) {
-    const W = this.cfg?.walkers; if (!W) return;
+    if (!this.cfg?.walkers) return;
+    // anywhere on the land (up the hills too), but not into the pond or off the edge
+    const ground: Ground = (x, z) => [[0, 0], [30, 0], [-30, 0], [0, 30], [0, -30]].every(([dx, dz]) => onLand(x + dx, z + dz)) && Math.hypot(x - POND[0], z - POND[1]) > POND[2] + 8 ? terrain(x, z) : null, speed = 230;
     if (/hill|forest|desert/i.test(kind)) {
       const [mx, mz, r, hh] = MTN[0], up: Stop[] = [];
       for (let i = 0; i <= 8; i++) { const u = (i / 8) * 0.8, a = Math.PI * (0.88 - (i / 8) * 0.6), rad = r * (1 - u) + 10; up.push({ x: mx + Math.cos(a) * rad, z: mz + Math.sin(a) * rad, y: -26 + hh * u }); }
       up[up.length - 1] = { ...up[up.length - 1], p: 3.2, act: 'wave' };
       const route: Stop[] = [{ x: mx - 150, z: mz + 120, y: -26, p: 1.5, act: 'look', f: 1 }, ...up, ...up.slice(1, -1).reverse().map(q => ({ ...q }))];
-      this.walker(G, W.d, h, route, { v: 26, y0: 0 });
-      this.walker(G, W.a, h * 0.85, route, { v: 26, y0: 0, hop: true, off: 3.2 });
+      this.walker(G, 'd', h, route, { v: 26, y0: 0, ground, speed });
+      this.walker(G, 'a', h * 0.85, route, { v: 26, y0: 0, hop: true, off: 3.2, ground, speed });
     } else {
       const [px, pz, pr] = POND, R = pr + 22, ring: Stop[] = [];
       for (let i = 0; i < 6; i++) { const a = -Math.PI * 0.45 + (i / 5) * Math.PI * 0.9; ring.push({ x: px + Math.cos(a) * R, z: pz + Math.sin(a) * R, y: -26, p: i % 2 ? 0 : 2, act: i === 2 ? 'wave' : 'look', f: -1 }); }
       const route = [...ring, ...ring.slice(1, -1).reverse().map(q => ({ ...q }))];
-      this.walker(G, W.d, h, route, { v: 22, y0: 0 });
-      this.walker(G, W.a, h * 0.85, route, { v: 22, y0: 0, hop: true, off: 4 });
+      this.walker(G, 'd', h, route, { v: 22, y0: 0, ground, speed });
+      this.walker(G, 'a', h * 0.85, route, { v: 22, y0: 0, hop: true, off: 4, ground, speed });
     }
   }
 
@@ -464,7 +520,9 @@ export class MapScene {
   private build(cfg: MapConfig) {
     this.cfg = cfg; this.root.clear(); this.clearOwned();
     this.items = []; this.tweens = []; this.anims = []; this.qs = []; this.pickables = [];
-    this.flows = []; this.sway = []; this.sheep = []; this.clouds = []; this.ripples = []; this.walkers = [];
+    this.flows = []; this.sway = []; this.sheep = []; this.clouds = []; this.ripples = []; this.walkers = []; this.plants = []; this.huds = [];
+    this.bubbles.forEach(b => this.scene.remove(b.s)); this.bubbles = [];
+    if (this.pov) { this.pov = null; this.camera.fov = 30; this.camera.updateProjectionMatrix(); this.mode = null; this.joyEl.style.display = 'none'; this.keys.clear(); this.onPov(null); }
     if (cfg.mode === 'place') this.root.add(this.island(cfg.place, { fresh: cfg.fresh, fade: cfg.fade, q: true, S: 76, walk: true }));
     else if (cfg.mode === 'month') this.root.add(this.month(cfg.places, { pick: true, kind: cfg.kind }));
     else cfg.months.forEach((m, i) => { const b = this.board(m, i); b.position.y = -i * STEP; this.root.add(b); });
@@ -510,7 +568,83 @@ export class MapScene {
   private pick(e: PointerEvent) {
     const r = this.renderer.domElement.getBoundingClientRect(), v = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     const rc = new THREE.Raycaster(); rc.setFromCamera(v, this.camera);
-    for (const h of rc.intersectObjects(this.pickables, true)) { let o: THREE.Object3D | null = h.object; while (o && !o.userData.pick) o = o.parent; if (o) { this.onPick(o.userData.pick); return; } }
+    for (const h of rc.intersectObjects(this.pickables, true)) {
+      let o: THREE.Object3D | null = h.object; while (o && !o.userData.pick && !o.userData.walker) o = o.parent; if (!o) continue;
+      // tapping one of them: see the map through their eyes
+      if (o.userData.walker) { this.setPov((o.userData.walker as Walker).who); return; }
+      this.onPick(o.userData.pick); return;
+    }
+  }
+
+  /** See the map through Dadi's or the grandchild's eyes (null: back to the view from above). */
+  setPov(who: Pov, silent = false) {
+    const cam = this.camera, W = who ? this.walkers.find(w => w.who === who) : undefined;
+    if (who && !W) { this.setPov(null); return; }
+    if (this.pov && W && this.pov.w === W) return;
+    // the one we leave stays where we walked them to
+    if (this.pov) { const o = this.pov.w; o.s.visible = true; if (W) o.parked = { x: this.pov.x, z: this.pov.z, y: this.pov.gy }; }
+    if (!W) {
+      this.huds.forEach(s => (s.visible = true));
+      if (this.pov) { this.pov = null; this.walkers.forEach(w => { w.parked = null; w.s.visible = true; }); cam.fov = 30; cam.updateProjectionMatrix(); const m = this.mode!; this.mode = null; this.frame(m); }
+      this.joyEl.style.display = 'none'; this.keys.clear(); if (!silent) this.onPov(null); return;
+    }
+    let x: number, z: number, gy: number;
+    if (W.parked) ({ x, z, y: gy } = W.parked);
+    else { x = W.s.position.x; z = W.s.position.z; gy = W.ground(x, z) ?? W.s.position.y - W.y0; }
+    W.parked = null; W.s.visible = false;
+    // start out looking at the other one, a few steps back so they are in view
+    const other = this.walkers.find(w => w !== W); let yaw = Math.atan2(-x, -z);
+    if (other) {
+      const ox = other.parked ? other.parked.x : other.s.position.x, oz = other.parked ? other.parked.z : other.s.position.z;
+      let dx = ox - x, dz = oz - z, dd = Math.hypot(dx, dz);
+      if (dd < 1) { dx = -x; dz = -z; dd = Math.hypot(dx, dz) || 1; }
+      yaw = Math.atan2(dx, dz); const need = W.h * 2.6;
+      if (dd < need) { const ux = dx / dd, uz = dz / dd; for (let s = need; s >= dd; s -= 10) { const nx = ox - ux * s, nz = oz - uz * s, g = W.ground(nx, nz); if (g != null) { x = nx; z = nz; gy = g; break; } } }
+    }
+    this.pov = { w: W, x, z, gy, yaw, pitch: -0.1, t0: now(), sp: cam.position.clone(), sq: cam.quaternion.clone(), sf: cam.fov, walkT: 0 };
+    this.controls.enabled = false; this.joyEl.style.display = 'block'; this.huds.forEach(s => (s.visible = false));
+    if (!silent) this.onPov(who);
+  }
+
+  private povStep(dt: number, n: number) {
+    const P = this.pov!, w = P.w, cam = this.camera, k = this.keys; let jx = this.joy.x, jy = this.joy.y;
+    if (k.has('w') || k.has('arrowup')) jy += 1; if (k.has('s') || k.has('arrowdown')) jy -= 1; if (k.has('a') || k.has('arrowleft')) jx -= 1; if (k.has('d') || k.has('arrowright')) jx += 1;
+    if (k.has('q')) P.yaw += dt * 1.8; if (k.has('e')) P.yaw -= dt * 1.8;
+    const mag = Math.hypot(jx, jy); if (mag > 1) { jx /= mag; jy /= mag; }
+    if (mag > 0.05) {
+      // slide along the edge instead of stepping off it
+      const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw), rx = -fz, rz = fx, sp = w.speed * dt, nx = P.x + (fx * jy + rx * jx) * sp, nz = P.z + (fz * jy + rz * jx) * sp, off = w.ground(P.x, P.z) == null;
+      if (off || w.ground(nx, nz) != null) { P.x = nx; P.z = nz; } else if (w.ground(nx, P.z) != null) P.x = nx; else if (w.ground(P.x, nz) != null) P.z = nz;
+      P.walkT += dt * Math.min(1, mag);
+    }
+    const g = w.ground(P.x, P.z); if (g != null) P.gy += (g - P.gy) * Math.min(1, dt * 10);
+    const bob = mag > 0.05 && !this.reducedMotion ? Math.sin(P.walkT * (w.hop ? 11 : 8)) * (w.hop ? 4 : 2.2) : 0;
+    w.G.updateWorldMatrix(true, false);
+    const eye = w.G.localToWorld(this.eye.set(P.x, P.gy + w.y0 + w.h * 0.78 + bob, P.z)), cp = Math.cos(P.pitch);
+    const tg = this.look.set(eye.x + Math.sin(P.yaw) * cp, eye.y + Math.sin(P.pitch), eye.z + Math.cos(P.yaw) * cp);
+    // glide down from above into their eyes
+    const b = this.reducedMotion ? 1 : Math.min(1, (n - P.t0) / 0.9);
+    if (b < 1) { const e = b * b * (3 - 2 * b); this.dc.position.copy(eye); this.dc.lookAt(tg); cam.position.lerpVectors(P.sp, eye, e); cam.quaternion.slerpQuaternions(P.sq, this.dc.quaternion, e); cam.fov = P.sf + (64 - P.sf) * e; cam.updateProjectionMatrix(); }
+    else { if (cam.fov !== 64) { cam.fov = 64; cam.updateProjectionMatrix(); } cam.position.copy(eye); cam.lookAt(tg); }
+  }
+
+  private bubble(text: string, pos: THREE.Vector3, o: { bg?: string; color?: string } = {}) {
+    const s = this.sprite(text, { size: 44, pill: true, bg: o.bg || '#FFF3D1', color: o.color || INK, k: 0.42 }); s.material.depthTest = false; s.renderOrder = 1000; s.position.copy(pos);
+    this.scene.add(s); this.bubbles.push({ s, t0: now(), y0: pos.y });
+  }
+
+  /** Walking around: tap a drawing, a flower or the other one to say hello. */
+  private povPick(e: PointerEvent) {
+    const P = this.pov!, r = this.renderer.domElement.getBoundingClientRect(), v = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    const rc = new THREE.Raycaster(); rc.setFromCamera(v, this.camera);
+    const hit = rc.intersectObjects([...this.items.map(i => i.base), ...this.walkers.filter(w => w !== P.w).map(w => w.s), ...this.plants], true)[0]; if (!hit) return;
+    let o: THREE.Object3D | null = hit.object; while (o && !o.userData.item && !o.userData.walker && !o.userData.plant) o = o.parent; if (!o) return;
+    const n = now(), names = this.cfg?.names || { d: 'Dadi', a: 'Aarav' }, wp = o.getWorldPosition(new THREE.Vector3());
+    if (hit.distance > (P.w.speed > 200 ? 420 : 330)) { this.bubble('Walk closer!', wp.add(new THREE.Vector3(0, 60, 0))); return; }
+    if (o.userData.walker) { const w = o.userData.walker as Walker; w.waveUntil = n + 2.4; this.bubble('Hi, ' + names[P.w.who] + '!', wp.add(new THREE.Vector3(0, w.h * 1.1, 0)), { bg: w.who === 'd' ? DADI : CHILD, color: '#FFF3D1' }); return; }
+    if (o.userData.plant) { o.userData.plant.pop = n; this.bubble('Mmm, flowers!', wp.add(new THREE.Vector3(0, 34, 0))); return; }
+    const it = o.userData.item as Item, label = (it.d.label || it.d.kind || '').trim();
+    it.pop = n; this.bubble(SAY[(it.d.kind || '').toLowerCase()] || (label ? label[0].toUpperCase() + label.slice(1) + '!' : 'Hello!'), wp.add(new THREE.Vector3(0, it.S * 1.25, 0)));
   }
 
   /** Bring a drawing to life according to what it is (motion) and where it lives (sky / ground / water). */
@@ -542,10 +676,14 @@ export class MapScene {
     this.raf = requestAnimationFrame(this.loop);
     const t = this.clock.getElapsedTime(), n = now();
     if (this.mode === 'stack') { this.stackY += (this.stackTarget - this.stackY) * 0.12; const back = Math.max(1, 1.75 / this.camera.aspect); this.camera.position.set(0, this.stackY + 1500 * back, 2500 * back); this.camera.lookAt(0, this.stackY - 150, 0); }
+    else if (this.pov) this.povStep(Math.min(0.05, t - (this.lt || t)), n);
     else this.controls.update();
+    this.lt = t;
     const boil = this.reducedMotion ? true : Math.floor(t / 0.22) % 2 === 0;
     for (const it of this.items) {
       it.oa.visible = boil; it.ob.visible = !boil; this.animate(it, t);
+      // tapped while walking around: a happy spin
+      if (it.pop) { const k = (n - it.pop) / 0.9; if (k < 1) { it.sc.scale.setScalar((it.S / 64) * (1 + 0.35 * Math.sin(k * Math.PI))); it.sc.rotation.y = (1 - Math.pow(1 - k, 3)) * Math.PI * 2; } else { it.pop = 0; it.sc.scale.setScalar(it.S / 64); it.sc.rotation.y = 0; } }
       if (it.rise) { const k = this.reducedMotion ? 1 : Math.min(1, Math.max(0, (n - it.rise) / 1.4)); it.sc.scale.setScalar(Math.max(0.0001, (it.S / 64) * easeBack(k))); it.mover.rotation.x = -(1 - k) * (1 - k) * Math.PI / 2; if (k >= 1) it.rise = 0; }
     }
     for (const tw of this.tweens) { const k = Math.min(1, (n - tw.t0) / tw.dur); tw.m.forEach(m => { m.opacity = k; if (k >= 1) { m.transparent = false; m.needsUpdate = true; } }); }
@@ -557,7 +695,14 @@ export class MapScene {
     for (const s of this.sheep) { const k = t * A; s.o.position.set(s.cx + Math.sin(k * 0.15 + s.ph) * 28, -26 + Math.abs(Math.sin(k * 2 + s.ph)) * 2, s.cz + Math.cos(k * 0.12 + s.ph) * 18); s.o.rotation.y = Math.sin(k * 0.15 + s.ph) > 0 ? 0 : Math.PI; }
     for (const c of this.clouds) c.o.position.x = (((c.x0 + t * c.v * A + 900) % 1800) + 1800) % 1800 - 900;
     for (const r of this.ripples) { const k = (t * 0.25 * A + r.ph) % 1; r.o.scale.set(r.R * (0.3 + k * 0.65), 30, r.R * (0.3 + k * 0.65)); r.m.opacity = (1 - k) * 0.8; }
+    for (const c of this.plants) { const p = c.userData.plant; if (!p.pop) continue; const k = (n - p.pop) / 0.8, s = Math.sin(k * Math.PI); if (k < 1) c.scale.set(1 + 0.5 * s, 1 + 0.8 * s, 1 + 0.5 * s); else { p.pop = 0; c.scale.set(1, 1, 1); } }
+    for (const b of this.bubbles) { const k = (n - b.t0) / 1.9; b.s.position.y = b.y0 + k * 24; b.s.material.opacity = k < 0.7 ? 1 : Math.max(0, (1 - k) / 0.3); if (k >= 1) { this.scene.remove(b.s); b.dead = true; } }
+    this.bubbles = this.bubbles.filter(b => !b.dead);
     for (const w of this.walkers) {
+      if (this.pov && this.pov.w === w) continue;
+      const waving = w.waveUntil > n;
+      // after switching, the one left behind stays where they were walked to
+      if (w.parked) { const bob = waving ? Math.abs(Math.sin(t * 6)) * 14 : 0, rot = waving ? Math.sin(t * 6) * 0.1 : Math.sin(t * 1.5 + w.off) * 0.03; w.s.position.set(w.parked.x, w.parked.y + w.y0 + bob * A, w.parked.z); w.s.material.rotation = rot * A; continue; }
       const tt = (((t + w.off) % w.total) + w.total) % w.total, L = w.legs.find(l => tt < l.t0 + l.pause + l.dur) || w.legs[w.legs.length - 1], lt = tt - L.t0;
       let x: number, y: number, z: number, mv = false, act: Stop['act'] = null, bob = 0, rot = 0;
       if (lt < L.pause) { x = L.a.x; y = L.a.y || 0; z = L.a.z; act = L.a.act; if (L.a.f) w.face = L.a.f; }
@@ -568,6 +713,7 @@ export class MapScene {
       else if (act === 'wave') { bob = Math.abs(Math.sin(t * 6)) * 14; rot = Math.sin(t * 6) * 0.1; }
       else if (act === 'look') rot = -w.face * 0.14;
       else rot = Math.sin(t * 1.5 + w.off) * 0.03;
+      if (waving) { bob = Math.abs(Math.sin(t * 6)) * 14; rot = Math.sin(t * 6) * 0.1; }
       w.s.position.set(x, y + w.y0 + bob * A, z); w.s.scale.x = w.h * w.face; w.s.material.rotation = rot * A;
     }
     for (const q of this.qs) { q.material.opacity = 0.55 + 0.35 * Math.sin(t * 2.4); q.position.y = 150 + Math.sin(t * 1.2) * 6; }
