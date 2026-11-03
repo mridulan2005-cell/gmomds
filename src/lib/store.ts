@@ -169,8 +169,8 @@ export function completePlace() {
   void ensurePrompt();
 }
 
-export function finishOnboarding(names: { dadi: string; child: string }, loves: { dadi: string[]; child: string[] }, faces: { dadi: string; child: string }) {
-  update(s => { s.names = names; s.loves = loves; s.faces = faces; s.onboarded = true; });
+export function finishOnboarding(names: { dadi: string; child: string }, loves: { dadi: string[]; child: string[] }, faces: { dadi: string; child: string }, role: string) {
+  update(s => { s.names = names; s.loves = loves; s.faces = faces; s.role = role; s.onboarded = true; });
   void ensurePrompt();
 }
 
