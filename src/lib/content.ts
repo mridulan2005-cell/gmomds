@@ -4,6 +4,13 @@ import { motionFor, prettyLabel } from './motionRules';
 
 /** pairs of drawings (prompts) that finish a place and reveal its theme */
 export const PAIRS = 4, PAIRS_WORD = 'Four';
+/** What the place says as each pair builds a little more of it (MapScene.scenery), per theme, after pair 1…PAIRS. */
+export const BUILD_NOTES: Record<string, string[]> = {
+  river: ['Oh, a riverbed is dug out! Keep drawing to see what fills it.', 'Water is trickling in! Keep going to get it flowing.', 'The river is starting to flow! Reeds are growing on its banks.', 'The river is flowing! Lily pads and a little bridge are here.'],
+  garden: ['Oh, flower beds are dug! Keep drawing to see what grows.', 'Tiny sprouts are popping up! What will they become?', 'Trees and hedges have grown! Something is about to bloom…', 'The flowers are blooming! What a place you made.'],
+  market: ['Oh, wooden posts are going up! Keep drawing to see what they hold.', 'Colourful awnings are up! Somebody is setting up shop…', 'Fruit and crates are arriving! It is getting busy.', 'Flags and lanterns are up! Everything is ready.'],
+  rooftop: ['Oh, roof tiles are laid! Keep drawing to see what is up here.', 'A water tank and pots of plants! Keep going…', 'A washing line and a kite! It is breezy up here.', 'Fairy lights and stars are out! What a night.'],
+};
 export const INK = '#3d2b22', DADI = '#2F5FD0', CHILD = '#E4572E', ORANGE = '#F26A2E', SUN = '#FFC93C';
 export const inkOf = (who: 'dadi' | 'child') => (who === 'dadi' ? DADI : CHILD);
 

@@ -137,7 +137,9 @@ input { font-family: inherit; -webkit-user-select: text; user-select: text; }
 .pov-switch .face { width: 44px; height: 44px; }
 .pov-you { position: absolute; left: 50%; top: calc(30px + env(safe-area-inset-top) / var(--scale)); translate: -50% 0; height: 56px; padding: 0 24px 0 6px; border-radius: 999px; color: var(--cream); display: flex; align-items: center; gap: 12px; font-size: 22px; font-weight: 900; white-space: nowrap; z-index: 20; pointer-events: none; animation: fadein .4s both; }
 .pov-you .face { width: 44px; height: 44px; }
-.pov-help { position: absolute; right: 30px; bottom: calc(40px + env(safe-area-inset-bottom) / var(--scale)); padding: 14px 22px; border-radius: 14px; background: rgba(255, 243, 209, .92); box-shadow: 0 6px 0 var(--cream-shadow); display: flex; flex-direction: column; gap: 4px; font-size: 18px; font-weight: 800; pointer-events: none; z-index: 20; }
+.build-note { position: absolute; left: 50%; top: calc(150px + env(safe-area-inset-top) / var(--scale)); translate: -50% 0; max-width: 640px; padding: 16px 26px; border-radius: 16px; background: var(--cream); box-shadow: 0 7px 0 var(--cream-shadow); color: var(--deep); font-size: 24px; font-weight: 800; text-align: center; text-wrap: balance; z-index: 20; pointer-events: none; animation: note 6s ease both; }
+.build-note::after { content: ''; position: absolute; left: 50%; bottom: -14px; translate: -50% 0; border: 14px solid transparent; border-bottom: none; border-top-color: var(--cream); }
+@keyframes note { 0% { opacity: 0; translate: -50% 16px; scale: .9 } 8% { opacity: 1; translate: -50% 0; scale: 1 } 88% { opacity: 1 } 100% { opacity: 0 } }
 .joystick { position: absolute; left: 40px; bottom: calc(40px + env(safe-area-inset-bottom) / var(--scale)); width: 190px; height: 190px; border-radius: 50%; background: rgba(255, 243, 209, .88); box-shadow: 0 7px 0 var(--cream-shadow); display: none; touch-action: none; z-index: 5; cursor: grab; }
 .joystick svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .joystick .knob { position: absolute; left: 56px; top: 56px; width: 78px; height: 78px; border-radius: 50%; background: var(--orange); box-shadow: 0 5px 0 var(--orange-edge); pointer-events: none; }
@@ -250,3 +252,4 @@ a.btn-cream { text-decoration: none; }
 .portrait .ob-tool { width: 190px; }
 .portrait .ob-next { order: 2; width: auto; }
 .portrait .btn-primary.ob-draw-next { width: auto; min-height: 88px; flex-direction: row; padding: 0 40px; }
+@media (prefers-reduced-motion: reduce) { .build-note { animation: none !important; } }

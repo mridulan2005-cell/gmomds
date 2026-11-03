@@ -4,7 +4,7 @@ import { Arrow, Back, Dock, Map3D, Cloud, type Dest } from '../components';
 import { clearFresh, completePlace, currentPlace, getState, placeById, useApp } from '../lib/store';
 import { placeCfg, stackCfg } from '../lib/mapConfig';
 import type { MapConfig, Pick, Pov } from '../map/MapScene';
-import { CHILD, DADI, ORANGE, PAIRS, PAIRS_WORD, SUN } from '../lib/content';
+import { BUILD_NOTES, CHILD, DADI, ORANGE, PAIRS, PAIRS_WORD, SUN } from '../lib/content';
 
 type MapRoute = Extract<Route, { screen: 'stack' | 'interior' | 'place' | 'reveal' }>;
 
@@ -13,6 +13,15 @@ export function MapView({ route, go, dest }: { route: MapRoute; go: Go; dest: (d
   // the newest pair rises out of the island once, the first time its place is opened
   const [fresh] = useState(() => (route.screen === 'place' && s.lastFresh?.placeId === route.placeId ? s.lastFresh.slot : -1));
   useEffect(() => () => { if (route.screen === 'place') clearFresh(); }, []);
+  // ...and the bit of the place it builds gets a little note, once the new scenery has grown in
+  const [note, setNote] = useState<string | null>(null);
+  useEffect(() => {
+    const hit = route.screen === 'place' && fresh >= 0 ? placeById(s, route.placeId) : undefined;
+    const text = hit && hit.place.status === 'current' ? BUILD_NOTES[hit.place.theme]?.[fresh] : undefined;
+    if (!text) return;
+    const ts = [setTimeout(() => setNote(text), reduced ? 300 : 2700), setTimeout(() => setNote(null), reduced ? 6300 : 8700)];
+    return () => ts.forEach(clearTimeout);
+  }, []);
 
   // reveal: ghost → solid colour, then the name, then the button
   const [stage, setStage] = useState(0);
@@ -84,6 +93,7 @@ export function MapView({ route, go, dest }: { route: MapRoute; go: Go; dest: (d
       <Cloud fill="#E6F6F3" w={240} style={{ right: 140, top: 150, animation: 'drift 60s ease-in-out infinite alternate-reverse' }} />
       {cfg && <Map3D config={cfg} onPick={onPick} reducedMotion={reduced} pov={pov} onPov={setPov} />}
       {!pov && <div className="map-title"><div className="t">{title}</div>{hint && <div className="h">{hint}</div>}</div>}
+      {note && !pov && <div className="build-note" role="status">{note}</div>}
       {povAvail && !pov && (
         <div className="pov-chips">
           <div className="k">Walk around as</div>
@@ -104,7 +114,6 @@ export function MapView({ route, go, dest }: { route: MapRoute; go: Go; dest: (d
           <button className="pov-btn pov-switch" style={{ color: other.color }} onClick={() => setPov(pov === 'd' ? 'a' : 'd')}>
             <span className="face" style={{ backgroundImage: `url(${other.face})`, boxShadow: `inset 0 0 0 3px ${other.color}` }} />Switch to {other.name}
           </button>
-          <div className="pov-help"><span>Joystick to walk · drag to look around</span><span style={{ opacity: 0.65 }}>Tap a drawing, a flower or {other.name}</span></div>
         </>
       )}
       {stepper && !pov && (
