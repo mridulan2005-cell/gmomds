@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Go } from '../App';
 import { Arrow } from '../components';
-import { DADI, CHILD, ICON, INK, NC, TILES } from '../lib/content';
+import { DADI, CHILD, INK, LOVE_ICON, TILES } from '../lib/content';
 import { finishOnboarding, getState } from '../lib/store';
 import type { PersonId } from '../lib/types';
 
@@ -13,7 +13,7 @@ type Tool = 'pen' | 'eraser';
 export function Onboarding({ go }: { go: Go }) {
   const init = getState();
   const [step, setStep] = useState(0);
-  const [picks, setPicks] = useState<{ dadi: string[]; child: string[] }>({ dadi: init.loves.dadi, child: init.loves.child });
+  const [picks, setPicks] = useState<{ dadi: string[]; child: string[] }>(() => { const ok = (l: string[]) => l.filter(k => LOVE_ICON[k]); return { dadi: ok(init.loves.dadi), child: ok(init.loves.child) }; });
   // a first run starts with empty names; running it again keeps the ones they gave
   const [names, setNames] = useState(init.onboarded ? init.names : { dadi: '', child: '' });
   const [role, setRole] = useState(init.role || 'Grandmother');
@@ -77,12 +77,12 @@ export function Onboarding({ go }: { go: Go }) {
           <div className="ob-title"><span style={{ color }}>{who === 'dadi' ? elderName : childName}</span>, what do you love?</div>
           <div className="ob-grid">
             {TILES.map(([label, k]) => {
-              const sel = mine.includes(k), ic = ICON[k];
+              const sel = mine.includes(k), ic = LOVE_ICON[k];
               return (
                 <button key={k} className="tile" onClick={() => toggle(k)} aria-pressed={sel}
                   style={{ background: sel ? (who === 'dadi' ? 'rgba(47,95,208,.14)' : 'rgba(228,87,46,.14)') : 'transparent', color: sel ? color : INK, rotate: sel ? '-3deg' : '0deg', scale: sel ? '1.05' : '1' }}>
                   <svg viewBox="0 0 64 64" width="80" height="80" fill="none" strokeLinecap="round" strokeLinejoin="round">
-                    <path d={ic.f.join(' ')} fill={sel ? NC[k] : 'currentColor'} fillOpacity={sel ? 0.6 : 0.15} stroke="currentColor" strokeWidth="2.8" />
+                    <path d={ic.f.join(' ')} fill={sel ? ic.c : 'currentColor'} fillOpacity={sel ? 0.6 : 0.15} stroke="currentColor" strokeWidth="2.8" />
                     <path d={ic.s.join(' ')} stroke="currentColor" strokeWidth="2.8" />
                   </svg>
                   {label}

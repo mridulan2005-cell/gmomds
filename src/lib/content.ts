@@ -47,7 +47,22 @@ const PALETTE = ['#FFC93C', '#FF9F1C', '#FF7BAC', '#9BD770', '#8CCFF0', '#F6C778
 export function fillFor(kind: string, seed = 0) { return NC[kind] || PALETTE[(hash(kind) + seed) % PALETTE.length]; }
 function hash(s: string) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; }
 
-export const TILES: [string, string][] = [['Cats', 'cat'], ['Birds', 'bird'], ['Mangoes', 'mango'], ['Chai', 'chai'], ['Diwali', 'diya'], ['Kites', 'kite'], ['Songs', 'note'], ['Rivers', 'waves'], ['Trees', 'tree'], ['Moon nights', 'moon'], ['Fish', 'fish'], ['Home', 'home']];
+/** The onboarding "what do you love?" tiles: broad interests, each with its own little icon and colour. */
+export const TILES: [string, string][] = [['Animals', 'animals'], ['Birds', 'birds'], ['Sky', 'sky'], ['Sea', 'sea'], ['Snow', 'snow'], ['Garden', 'garden'], ['Stories', 'stories'], ['Family', 'family'], ['Friends', 'friends'], ['Food', 'food'], ['God', 'god'], ['Music', 'music']];
+export const LOVE_ICON: Record<string, { f: string[]; s: string[]; c: string }> = {
+  animals: { ...ICON.cat, c: '#FFB26B' },
+  birds: { ...ICON.bird, c: '#FFC93C' },
+  sky: { f: ['M10 46Q4 46 4 39 4 32 12 32 13 24 22 24 28 16 38 22 50 20 50 32 60 32 60 40 60 46 52 46Z'], s: ['M44 6v5M56 12l-4 4M32 12l4 4'], c: '#8CCFF0' },
+  sea: { ...ICON.waves, c: '#5AB0F0' },
+  snow: { f: [], s: ['M32 6V58M9 19L55 45M9 45L55 19', 'M26 10l6 6 6-6M26 54l6-6 6 6M10 27l8-2-2-8M54 37l-8 2 2 8M10 37l8 2-2 8M54 27l-8-2 2-8'], c: '#BFE6FA' },
+  garden: { ...ICON.flower, c: '#FF7BAC' },
+  stories: { f: ['M32 16Q20 8 6 12V52Q20 48 32 56Z', 'M32 16Q44 8 58 12V52Q44 48 32 56Z'], s: ['M32 16V56M14 22q6-1 11 2M14 31q6-1 11 2M39 24q6-3 11-2M39 33q6-3 11-2'], c: '#C9A3E8' },
+  family: { ...ICON.home, c: '#E86A4A' },
+  friends: { f: ['M18 24a8 8 0 1 0 .1 0Z', 'M46 24a8 8 0 1 0 .1 0Z', 'M4 56Q4 38 18 38 32 38 32 56Z', 'M32 56Q32 38 46 38 60 38 60 56Z'], s: ['M24 44q8 4 16 0'], c: '#9BD770' },
+  food: { ...ICON.mango, c: '#FF9F1C' },
+  god: { ...ICON.diya, c: '#FF7A1A' },
+  music: { ...ICON.note, c: '#9B5DE5' },
+};
 
 export interface ThemeDef { theme: string; color: string; shape: 'A' | 'B' | 'C' | 'D'; prompts: string[] }
 /** The four hidden themes of every map's places (water, growing things, food and things, sky). */
@@ -82,12 +97,18 @@ export const themeLabel = (t: string) => ({ river: 'River', garden: 'Garden', ma
 
 /** Prompts drawn from the onboarding picks. */
 export const LOVE_PROMPTS: Record<string, string[]> = {
-  cat: ['Draw a friend with four legs', 'Draw a cat having a nap'], bird: ['Draw a bird you saw last', 'Draw a bird in its nest'],
-  mango: ['Draw your favourite fruit', 'Draw something sweet and juicy'], chai: ['Draw something you drink together', 'Draw a cup of something warm'],
-  diya: ['Draw something from Diwali', 'Draw something that glows'], kite: ['Draw a kite on a windy day', 'Draw something that flies high'],
-  note: ['Draw a song you know', 'Draw something that makes music'], waves: ['Draw something from the river', 'Draw water moving'],
-  tree: ['Draw something tall', 'Draw a tree you know'], moon: ['Draw the night sky', 'Draw something you see at night'],
-  fish: ['Draw something from the water', 'Draw a fish swimming'], home: ['Draw where you sleep', 'Draw a door you know'],
+  animals: ['Draw a friend with four legs', 'Draw an animal having a nap', 'Draw the biggest animal you know'],
+  birds: ['Draw a bird you saw last', 'Draw a bird in its nest', 'Draw something with feathers'],
+  sky: ['Draw something in the sky', 'Draw the sky at night', 'Draw a cloud that looks like something'],
+  sea: ['Draw something from the sea', 'Draw something that swims', 'Draw a day at the beach'],
+  snow: ['Draw something cold', 'Draw a snowy day', 'Draw something you wear in winter'],
+  garden: ['Draw something that grows', 'Draw a flower you like', 'Draw a tree you know'],
+  stories: ['Draw someone from a story', 'Draw a magical creature', 'Draw the start of a story'],
+  family: ['Draw someone in your family', 'Draw where you sleep', 'Draw something you do together'],
+  friends: ['Draw a friend', 'Draw a game you play with friends', 'Draw something you would share'],
+  food: ['Draw your favourite food', 'Draw something sweet', 'Draw something you drink together'],
+  god: ['Draw something from a festival', 'Draw something that glows', 'Draw a place you pray'],
+  music: ['Draw a song you know', 'Draw something that makes music', 'Draw someone dancing'],
 };
 
 export const MOTIONS: Motion[] = ['fly', 'swim', 'sway', 'float', 'spin', 'bounce', 'swing', 'flicker', 'breathe', 'rock', 'flow', 'walk', 'hop', 'none'];
