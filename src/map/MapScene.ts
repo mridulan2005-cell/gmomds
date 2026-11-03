@@ -164,7 +164,12 @@ export class MapScene {
   private owned: (THREE.Material | THREE.Texture | THREE.BufferGeometry)[] = [];
   private items: Item[] = [];
   private tweens: { m: THREE.Material[]; t0: number; dur: number }[] = [];
-  private anims: { o: THREE.Object3D; i: number }[] = [];
+  // a place's scenery: what grows in, the river flowing along its bed, the kite, colour fading in
+  private grows: { o: THREE.Object3D; s: THREE.Vector3; at: number }[] = [];
+  private streams: { o: THREE.Object3D; curve: THREE.CatmullRomCurve3; i: number; n: number; speed: number; from: number }[] = [];
+  private loops: ((t: number) => void)[] = [];
+  private fx: ((n: number) => boolean)[] = [];
+  private kit?: Record<string, THREE.BufferGeometry>;
   private qs: THREE.Sprite[] = [];
   private flows: { o: THREE.Object3D; i: number; n: number; curve: THREE.CatmullRomCurve3 }[] = [];
   private sway: { o: THREE.Object3D; ph: number }[] = [];
@@ -185,7 +190,7 @@ export class MapScene {
   private stackY = 0; private stackTarget = 0;
   private mode: string | null = null; private cfg: MapConfig | null = null; private lastKey = '';
   private raf = 0; private clock = new THREE.Clock(); private ro: ResizeObserver;
-  private disc?: THREE.CircleGeometry; private dot?: THREE.SphereGeometry; private cone?: THREE.ConeGeometry; private box?: THREE.BoxGeometry; private slabGeo?: THREE.BoxGeometry;
+  private disc?: THREE.CircleGeometry; private dot?: THREE.SphereGeometry; private slabGeo?: THREE.BoxGeometry;
   onPick: (p: Pick) => void = () => {};
   /** someone was tapped on the map (or the view went back to normal) */
   onPov: (who: Pov) => void = () => {};
@@ -331,24 +336,31 @@ export class MapScene {
 
   private island(p: PlaceCfg, o: { fresh?: number; fade?: boolean; q?: boolean; S?: number; pick?: Pick | null; label?: string | null; lockK?: number; walk?: boolean; walkH?: number }) {
     const G = new THREE.Group(), ig = this.islandGeo(p.shape), st = p.status, t0 = now();
+    // the place in progress fills in with its colour, a little more with every pair (the newest bit after its pair has risen)
+    const stage = st === 'done' ? PAIRS : st === 'current' ? Math.min(PAIRS, p.pairs.length) : 0;
+    const fresh = st === 'current' && o.fresh != null && o.fresh >= 0 && o.fresh < PAIRS ? o.fresh + 1 : -1;
     let top: THREE.Material, side: THREE.Material, line: THREE.Material | null = null;
     if (st === 'done') {
-      if (o.fade) {
-        top = this.own(new THREE.MeshToonMaterial({ color: p.color, gradientMap: this.grad, transparent: true, opacity: 0 }));
-        side = this.own(new THREE.MeshToonMaterial({ color: shade(p.color), gradientMap: this.grad, transparent: true, opacity: 0 }));
-        line = this.own(new THREE.MeshBasicMaterial({ color: INK, transparent: true, opacity: 0 }));
-        this.tweens.push({ m: [top, side, line], t0, dur: this.reducedMotion ? 0.6 : 2.6 });
-      } else { top = this.toon(p.color); side = this.toon(shade(p.color)); line = this.basic(INK); }
-    } else if (st === 'current') { top = this.toon('#ffffff', 0.42); side = this.toon('#ffffff', 0.2); }
-    else { top = this.toon('#EEE7D8', 0.7); side = this.toon('#D8CFBC', 0.55); }
+      top = this.toon(p.color); side = this.toon(shade(p.color));
+      // the reveal: the place is already built and coloured in; its ink outline draws itself
+      if (o.fade) { line = this.own(new THREE.MeshBasicMaterial({ color: INK, transparent: true, opacity: 0 })); this.tweens.push({ m: [line], t0, dur: this.reducedMotion ? 0.6 : 2.6 }); }
+      else line = this.basic(INK);
+    } else if (st === 'current') {
+      const tm = this.own(new THREE.MeshToonMaterial({ color: '#ffffff', gradientMap: this.grad, transparent: true })), sm = this.own(new THREE.MeshToonMaterial({ color: '#ffffff', gradientMap: this.grad, transparent: true }));
+      const full = new THREE.Color(p.color), fullSide = new THREE.Color(shade(p.color)), f = stage / PAIRS, f0 = fresh > 0 ? (fresh - 1) / PAIRS : f;
+      const paint = (k: number) => { tm.color.set('#ffffff').lerp(full, k); tm.opacity = 0.42 + 0.58 * k; sm.color.set('#ffffff').lerp(fullSide, k); sm.opacity = 0.2 + 0.8 * k; };
+      paint(f0);
+      if (f0 !== f) this.fx.push(n => { const k = this.reducedMotion ? 1 : clamp((n - t0 - 2.2) / 1.8, 0, 1); paint(f0 + (f - f0) * k); return k < 1; });
+      top = tm; side = sm;
+    } else { top = this.toon('#EEE7D8', 0.7); side = this.toon('#D8CFBC', 0.55); }
     const mesh = new THREE.Mesh(ig.geo, [top, side]); G.add(mesh);
     if (line) { G.add(new THREE.Mesh(ig.top, line)); G.add(new THREE.Mesh(ig.bot, line)); }
     if (st !== 'done' || o.fade) { const dm = this.basic(st === 'locked' ? '#B5AA94' : INK); ig.dashes.forEach((d: THREE.BufferGeometry) => G.add(new THREE.Mesh(d, dm))); }
-    if (st === 'done') this.decor(p, G, !!o.fade);
-    // they walk on the place in progress too; its theme stays a secret, so they just stroll there
-    if (st !== 'locked' && o.walk) this.islandWalkers(st === 'done' ? p.theme : '', G, o.walkH || 100, ig.poly);
+    const slots = p.pairs.length <= SLOTS4.length ? SLOTS4 : SLOTS, spots = this.spots(ig.poly, slots, hashSeed(p.shape + p.theme));
+    const beds = stage ? this.scenery(p.theme, G, ig.poly, spots, stage, fresh, t0) : [];
+    // they walk on the place in progress too; there they just stroll, on a finished garden they smell the flowers
+    if (st !== 'locked' && o.walk) this.islandWalkers(st === 'done' ? p.theme : '', G, o.walkH || 100, ig.poly, beds);
     if (o.pick) { mesh.userData.pick = o.pick; this.pickables.push(mesh); }
-    const slots = p.pairs.length <= SLOTS4.length ? SLOTS4 : SLOTS;
     if (st !== 'locked') p.pairs.forEach((pr, j) => {
       const slot = slots[j % slots.length]; if (!slot) return; const [u, v] = slot;
       ([[pr[0], -32, 0], [pr[1], 32, 10]] as const).forEach(([d, du, dv], side) => {
@@ -363,15 +375,105 @@ export class MapScene {
     return G;
   }
 
-  private decor(p: PlaceCfg, G: THREE.Group, fade: boolean) {
-    const fadeIn = (m: THREE.Material) => { if (fade) { m.transparent = true; m.opacity = 0; this.tweens.push({ m: [m], t0: now(), dur: this.reducedMotion ? 0.6 : 2.6 }); } return m; };
-    if (p.theme === 'river') {
-      const m = fade ? fadeIn(this.own(new THREE.MeshBasicMaterial({ color: '#ffffff' }))) : this.basic('#ffffff');
-      [-40, 10, 60].forEach((z, i) => { const pts: THREE.Vector3[] = []; for (let x = -150; x <= 150; x += 10) pts.push(new THREE.Vector3(x, 5, z + Math.sin(x / 16) * 6)); const w = new THREE.Mesh(this.own(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 60, 2.2, 5, false)), m); G.add(w); this.anims.push({ o: w, i }); });
+  /** Spots on an island for scenery: inside it, away from its edge and from where every pair stands (or will stand). */
+  private spots(poly: number[][], slots: number[][], seed: number) {
+    const taken = slots.flatMap(([u, v]) => [[u - 272, v - 140], [u - 208, v - 130]]), out: { x: number; z: number }[] = [];
+    for (let z = -120; z <= 120; z += 30) for (let x = -230; x <= 230; x += 30) {
+      if ([[0, 0], [24, 0], [-24, 0], [0, 24], [0, -24]].every(([dx, dz]) => inRing(poly, x + dx, z + dz)) && taken.every(([tx, tz]) => Math.hypot(x - tx, z - tz) > 46)) out.push({ x, z });
     }
-    if (p.theme === 'garden') { const m = this.toon('#4E9F3D'); [[-170, -30], [150, -60], [-60, 80], [190, 60], [20, -90], [-190, 50], [80, 90]].forEach(([x, z]) => { const c = new THREE.Mesh(this.cone ||= new THREE.ConeGeometry(6, 16, 6), m); c.position.set(x, 11, z); G.add(c); c.userData.plant = { pop: 0 }; this.plants.push(c); }); }
-    if (p.theme === 'market') { ['#F26A2E', '#E9A3C0', '#8FD6D0', '#FFC93C', '#9BD770'].forEach((col, i) => { const c = new THREE.Mesh(this.box ||= new THREE.BoxGeometry(16, 12, 16), this.toon(col)); c.position.set(-180 + i * 90, 9, i % 2 ? -95 : 95); c.rotation.y = i * 0.5; G.add(c); }); }
-    if (p.theme === 'rooftop') { const m = this.toon('#C8573E'); [[-185, -60], [185, -50], [-150, 90], [170, 80]].forEach(([x, z]) => { const c = new THREE.Mesh(this.box ||= new THREE.BoxGeometry(16, 12, 16), m); c.scale.set(0.8, 2, 0.8); c.position.set(x, 15, z); G.add(c); }); }
+    const R = rnd(seed); return out.map(s => ({ s, k: R() })).sort((a, b) => a.k - b.k).map(o => o.s);
+  }
+
+  private growIn(o: THREE.Object3D, at: number) { if (this.reducedMotion) return; this.grows.push({ o, s: o.scale.clone(), at }); o.scale.setScalar(0.0001); }
+
+  /**
+   * The place's scenery, built up one stage per pair (a finished place has all of them); the newest stage grows in
+   * once its pair has risen. The river: a dry riverbed, then water, then it starts to flow, then lily pads and a bridge.
+   * Returns the flower beds (the walkers smell the flowers there).
+   */
+  private scenery(theme: string, G: THREE.Group, poly: number[][], spots: { x: number; z: number }[], stage: number, fresh: number, t0: number) {
+    const K = this.kit ||= (() => {
+      const flow = new THREE.CapsuleGeometry(1.8, 10, 3, 6); flow.rotateX(Math.PI / 2);
+      return { box: new THREE.BoxGeometry(1, 1, 1), ball: new THREE.IcosahedronGeometry(1, 1), cone: new THREE.ConeGeometry(1, 1, 7), cyl: new THREE.CylinderGeometry(1, 1, 1, 10), disc: new THREE.CircleGeometry(1, 24), flow } as Record<string, THREE.BufferGeometry>;
+    })();
+    let order = 0;
+    const show = (s: number, o: THREE.Object3D) => { if (s > stage) return null; G.add(o); if (s === fresh) this.growIn(o, t0 + 2.4 + order++ * 0.07); return o; };
+    const put = (s: number, g: string, color: string, x: number, y: number, z: number, sx: number, sy = sx, sz = sx, glow = false) => {
+      if (s > stage) return null; const o = new THREE.Mesh(K[g], glow ? this.basic(color) : this.toon(color)); o.position.set(x, y, z); o.scale.set(sx, sy, sz); return show(s, o) as THREE.Mesh;
+    };
+    const flat = (o: THREE.Mesh | null) => { if (o) o.rotation.x = -Math.PI / 2; return o; };
+    const plant = (o: THREE.Mesh | null) => { if (o) { o.userData.plant = { pop: 0, base: o.scale.clone() }; this.plants.push(o); } return o; };
+    const COLS = ['#F26A2E', '#E9A3C0', '#8FD6D0', '#FFC93C', '#9BD770'], R = rnd(hashSeed(theme) + spots.length);
+    const at = (i: number) => spots[i % Math.max(1, spots.length)];
+    if (!spots.length) return [];
+
+    if (theme === 'river') {
+      const zAt = (x: number) => 12 + Math.sin(x / 45) * 12, pts: THREE.Vector3[] = [];
+      for (let x = -240; x <= 240; x += 12) if (inRing(poly, x - 14, zAt(x)) && inRing(poly, x + 14, zAt(x))) pts.push(new THREE.Vector3(x, 0, zAt(x)));
+      if (pts.length < 4) return [];
+      const curve = new THREE.CatmullRomCurve3(pts), side = (u: number, d: number) => { const q = curve.getPointAt(u), tg = curve.getTangentAt(u); return [q.x - tg.z * d, q.z + tg.x * d]; };
+      const ribbon = (s: number, r: number, color: string, y: number) => { if (s > stage) return; const o = new THREE.Mesh(this.own(new THREE.TubeGeometry(curve, 90, r, 8, false)), this.toon(color)); o.position.y = y; o.scale.y = 0.08; show(s, o); };
+      // 1: the riverbed, dry, with pebbles along its banks
+      ribbon(1, 27, '#E3CFA0', 1.2);
+      for (let i = 0; i < 16; i++) { const [x, z] = side((i + 0.5) / 16, i % 2 ? 30 : -30); put(1, 'ball', '#B9AE9A', x, 2, z, 3.4, 2.2, 3.4); }
+      // 2: water fills it
+      ribbon(2, 22, '#3E8FDB', 1.9);
+      // 3: it starts to flow (slowly at first) and reeds grow on the banks; 4: it flows properly, with lily pads and a little bridge
+      if (stage >= 3) for (let i = 0; i < 12; i++) { const f = new THREE.Mesh(K.flow, this.basic('#ffffff')); G.add(f); this.streams.push({ o: f, curve, i, n: 12, speed: stage >= 4 ? 1 : 0.4, from: fresh === 3 ? t0 + 3 : 0 }); }
+      for (let i = 0; i < 10; i++) { const [x, z] = side((i + 0.3) / 10, (i % 2 ? 1 : -1) * (34 + R() * 6)); [-3, 0, 3].forEach((d, k) => put(3, 'cone', k === 1 ? '#3E9B48' : '#6CC24A', x + d, 8 + k * 2, z + d * 0.6, 1.6, 16 + k * 4, 1.6)); }
+      [0.18, 0.36, 0.7, 0.86].forEach((u, i) => { const [x, z] = side(u, i % 2 ? 10 : -10); flat(put(4, 'disc', '#6CC24A', x, 4.2, z, 6)); put(4, 'ball', '#E9A3C0', x, 5.4, z, 2); });
+      const q = curve.getPointAt(0.5), tg = curve.getTangentAt(0.5), bridge = new THREE.Group(), wood = this.toon('#B5793F');
+      bridge.position.set(q.x, 0, q.z); bridge.rotation.y = Math.atan2(tg.x, tg.z) + Math.PI / 2;
+      const deck = new THREE.Mesh(K.box, wood); deck.scale.set(16, 3, 70); deck.position.y = 7; bridge.add(deck);
+      [-7, 7].forEach(dx => { const rail = new THREE.Mesh(K.box, wood); rail.scale.set(1.6, 6, 70); rail.position.set(dx, 12, 0); bridge.add(rail); });
+      show(4, bridge);
+      return [];
+    }
+    if (theme === 'garden') {
+      const beds = [0, 1, 2, 3, 4].map(at), FL = ['#F26A2E', '#E9A3C0', '#FFC93C', '#ffffff', '#8E7FD0'];
+      // 1: flower beds dug, 2: sprouts, 3: trees and hedges, 4: the flowers bloom
+      beds.forEach((b, i) => {
+        flat(put(1, 'disc', '#8A5A3B', b.x, 1.4, b.z, 17));
+        [[-7, -4], [6, -5], [0, 7]].forEach(([dx, dz], k) => {
+          if (stage < 4) put(2, 'cone', '#6CC24A', b.x + dx, 5, b.z + dz, 2.6, 9, 2.6);
+          put(4, 'cyl', '#4E9F3D', b.x + dx, 7, b.z + dz, 0.9, 13, 0.9); plant(put(4, 'ball', FL[(i + k) % FL.length], b.x + dx, 15, b.z + dz, 4.6));
+        });
+      });
+      [5, 6, 7, 8].map(at).forEach((t, i) => { put(3, 'cyl', '#8A5A3B', t.x, 11, t.z, 3.5, 22, 3.5); put(3, 'ball', ['#4FAE3E', '#6CC24A', '#3E9B48'][i % 3], t.x, 34, t.z, 17); });
+      [9, 10, 11].map(at).forEach(h => put(3, 'ball', '#3E9B48', h.x, 8, h.z, 13, 9, 13));
+      return beds;
+    }
+    if (theme === 'market') {
+      // 1: the stalls' posts go up, 2: awnings and counters, 3: goods and crates, 4: flags and lanterns
+      [0, 1, 2, 3].map(at).forEach((s, i) => {
+        [[-12, -9], [12, -9], [-12, 9], [12, 9]].forEach(([dx, dz]) => put(1, 'cyl', '#8A5A3B', s.x + dx, 14, s.z + dz, 1.6, 28, 1.6));
+        put(2, 'box', COLS[i % 5], s.x, 30, s.z, 32, 4, 26); put(2, 'box', '#C99A6B', s.x, 6, s.z + 4, 26, 12, 10);
+        [-8, 0, 8].forEach((dx, k) => put(3, 'ball', COLS[(i + k + 1) % 5], s.x + dx, 15, s.z + 4, 3.6));
+        put(4, 'cyl', '#8A5A3B', s.x, 41, s.z, 0.8, 18, 0.8); put(4, 'box', COLS[(i + 2) % 5], s.x + 6, 47, s.z, 11, 7, 1);
+        [[-14, 10], [14, 10]].forEach(([dx, dz]) => put(4, 'ball', '#FFC93C', s.x + dx, 24, s.z + dz, 2.6, 2.6, 2.6, true));
+      });
+      [4, 5, 6, 7].map(at).forEach((c, i) => { const b = put(3, 'box', '#B5793F', c.x, 6, c.z, 12, 12, 12); if (b) b.rotation.y = i * 0.7; put(3, 'ball', COLS[i % 5], c.x, 14, c.z, 4); });
+      return [];
+    }
+    if (theme === 'rooftop') {
+      // 1: roof tiles and chimneys, 2: a water tank and pots, 3: a washing line and a kite, 4: fairy lights and stars
+      [0, 1, 2].map(at).forEach((r, i) => { const t = put(1, 'box', '#C8573E', r.x, 2.5, r.z, 36, 4, 26); if (t) t.rotation.y = (i - 1) * 0.3; put(1, 'box', '#A6452F', r.x + 10, 13, r.z - 6, 7, 18, 7); });
+      const tk = at(3); [[-7, -7], [7, -7], [-7, 7], [7, 7]].forEach(([dx, dz]) => put(2, 'cyl', '#8A5A3B', tk.x + dx, 8, tk.z + dz, 1.2, 16, 1.2)); put(2, 'cyl', '#8FA8B8', tk.x, 24, tk.z, 11, 16, 11);
+      [4, 5, 6].map(at).forEach(pt => { put(2, 'cyl', '#C8573E', pt.x, 4, pt.z, 5, 8, 5); put(2, 'ball', '#4FAE3E', pt.x, 11, pt.z, 6); });
+      const wl = at(7);
+      [-24, 24].forEach(dx => put(3, 'cyl', '#8A5A3B', wl.x + dx, 16, wl.z, 1.2, 32, 1.2)); put(3, 'box', INK, wl.x, 31, wl.z, 48, 0.8, 0.8);
+      [-14, -2, 10].forEach((dx, k) => put(3, 'box', COLS[k], wl.x + dx, 25, wl.z, 9, 11, 1));
+      [-18, -6, 6, 18].forEach(dx => put(4, 'ball', '#FFE27A', wl.x + dx, 30, wl.z, 2.2, 2.2, 2.2, true));
+      if (stage >= 3) {
+        const kp = at(8), kite = new THREE.Group(); kite.position.set(kp.x, 0, kp.z);
+        const str = new THREE.Mesh(K.cyl, this.basic(INK)); str.scale.set(0.4, 110, 0.4); str.position.y = 55; kite.add(str);
+        const k = new THREE.Mesh(K.box, this.toon('#F26A2E')); k.scale.set(16, 16, 1.5); k.rotation.z = Math.PI / 4; k.position.y = 112; kite.add(k);
+        show(3, kite); this.loops.push(t => { kite.rotation.z = Math.sin(t * 0.9) * 0.12; kite.rotation.x = Math.sin(t * 0.7 + 1) * 0.08; });
+      }
+      for (let i = 0; i < 6; i++) { const s = at(9 + i); put(4, 'ball', '#FFE27A', s.x, 120 + R() * 70, s.z, 3, 3, 3, true); }
+      return [];
+    }
+    return [];
   }
 
   private month(places: PlaceCfg[], o: { pick?: boolean; labels?: boolean; lite?: boolean; kind?: string } = {}) {
@@ -468,14 +570,14 @@ export class MapScene {
     const w: Walker = { s, G, who, legs, total: t0, h, off: o.off || 0, face: 1, hop: !!o.hop, y0: o.y0 ?? 3, ground: o.ground, speed: o.speed || 140, waveUntil: 0, parked: null };
     s.userData.walker = w; this.pickables.push(s); this.walkers.push(w);
   }
-  private islandWalkers(theme: string, G: THREE.Group, h: number, poly: number[][]) {
+  private islandWalkers(theme: string, G: THREE.Group, h: number, poly: number[][], beds: { x: number; z: number }[] = []) {
     if (!this.cfg?.walkers) return;
     const P = (x: number, z: number, p: number, act: Stop['act'], f?: 1 | -1): Stop => ({ x, z, p, act, f });
     // walking around, they keep a step away from the island's edge
     const m = 22, ground: Ground = (x, z) => [[0, 0], [m, 0], [-m, 0], [0, m], [0, -m]].every(([dx, dz]) => inRing(poly, x + dx, z + dz)) ? 0 : null;
-    if (theme === 'garden') {
-      // from flower to flower, stopping to smell each one (the green buds in decor())
-      const F = [P(-152, -30, 2.4, 'sniff', -1), P(-176, 50, 2.4, 'sniff', 1), P(-78, 80, 2.4, 'sniff', -1), P(62, 90, 2.4, 'sniff', -1), P(172, 60, 2.4, 'sniff', -1), P(132, -60, 2.4, 'sniff', 1), P(38, -90, 2.4, 'sniff', -1)];
+    if (theme === 'garden' && beds.length > 1) {
+      // round the flower beds (scenery()), stopping beside each one to smell the flowers
+      const F = [...beds].sort((a, b) => Math.atan2(a.z, a.x) - Math.atan2(b.z, b.x)).map(b => ground(b.x + 24, b.z) != null ? P(b.x + 24, b.z, 2.4, 'sniff', -1) : P(b.x - 24, b.z, 2.4, 'sniff', 1));
       this.walker(G, 'd', h, F, { v: 34, ground });
       this.walker(G, 'a', h * 0.9, F.slice(3).concat(F.slice(0, 3)).map(q => ({ ...q, p: 1.4 })), { v: 62, hop: true, off: 1.5, ground });
     } else if (theme === 'river') {
@@ -524,7 +626,7 @@ export class MapScene {
 
   private build(cfg: MapConfig) {
     this.cfg = cfg; this.root.clear(); this.clearOwned();
-    this.items = []; this.tweens = []; this.anims = []; this.qs = []; this.pickables = [];
+    this.items = []; this.tweens = []; this.qs = []; this.pickables = []; this.grows = []; this.streams = []; this.loops = []; this.fx = [];
     this.flows = []; this.sway = []; this.sheep = []; this.clouds = []; this.ripples = []; this.walkers = []; this.plants = []; this.huds = [];
     this.bubbles.forEach(b => this.scene.remove(b.s)); this.bubbles = [];
     if (this.pov) { this.pov = null; this.camera.fov = 30; this.camera.updateProjectionMatrix(); this.mode = null; this.joyEl.style.display = 'none'; this.keys.clear(); this.onPov(null); }
@@ -693,14 +795,22 @@ export class MapScene {
     }
     for (const tw of this.tweens) { const k = Math.min(1, (n - tw.t0) / tw.dur); tw.m.forEach(m => { m.opacity = k; if (k >= 1) { m.transparent = false; m.needsUpdate = true; } }); }
     this.tweens = this.tweens.filter(tw => n - tw.t0 < tw.dur);
-    for (const a of this.anims) a.o.position.x = this.reducedMotion ? 0 : ((t * 16 + a.i * 20) % 40) - 20;
+    for (const g of this.grows) { const k = (n - g.at) / 0.9; if (k <= 0) g.o.scale.setScalar(0.0001); else g.o.scale.copy(g.s).multiplyScalar(Math.max(0.0001, easeBack(Math.min(1, k)))); }
+    this.grows = this.grows.filter(g => n - g.at < 0.9);
+    this.fx = this.fx.filter(f => f(n));
     const A = this.reducedMotion ? 0.25 : 1, tv = this.tv;
     for (const f of this.flows) { const u = (t * 0.02 * A + f.i / f.n) % 1, p = f.curve.getPointAt(u), d = f.curve.getTangentAt(u); f.o.position.set(p.x + Math.sin(f.i * 2.3) * 9, -23.4, p.z); tv.set(f.o.position.x + d.x, -23.4, f.o.position.z + d.z); f.o.lookAt(tv); }
     for (const s of this.sway) s.o.rotation.z = Math.sin(t * 0.8 + s.ph) * 0.05 * A;
     for (const s of this.sheep) { const k = t * A; s.o.position.set(s.cx + Math.sin(k * 0.15 + s.ph) * 28, -26 + Math.abs(Math.sin(k * 2 + s.ph)) * 2, s.cz + Math.cos(k * 0.12 + s.ph) * 18); s.o.rotation.y = Math.sin(k * 0.15 + s.ph) > 0 ? 0 : Math.PI; }
     for (const c of this.clouds) c.o.position.x = (((c.x0 + t * c.v * A + 900) % 1800) + 1800) % 1800 - 900;
     for (const r of this.ripples) { const k = (t * 0.25 * A + r.ph) % 1; r.o.scale.set(r.R * (0.3 + k * 0.65), 30, r.R * (0.3 + k * 0.65)); r.m.opacity = (1 - k) * 0.8; }
-    for (const c of this.plants) { const p = c.userData.plant; if (!p.pop) continue; const k = (n - p.pop) / 0.8, s = Math.sin(k * Math.PI); if (k < 1) c.scale.set(1 + 0.5 * s, 1 + 0.8 * s, 1 + 0.5 * s); else { p.pop = 0; c.scale.set(1, 1, 1); } }
+    for (const c of this.plants) { const p = c.userData.plant, b = p.base as THREE.Vector3; if (!p.pop) continue; const k = (n - p.pop) / 0.8, s = Math.sin(k * Math.PI); if (k < 1) c.scale.set(b.x * (1 + 0.5 * s), b.y * (1 + 0.8 * s), b.z * (1 + 0.5 * s)); else { p.pop = 0; c.scale.copy(b); } }
+    for (const s of this.streams) {
+      s.o.visible = !s.from || n > s.from; if (!s.o.visible) continue;
+      const u = (((t * 0.035 * s.speed * A + s.i / s.n) % 1) + 1) % 1, p = s.curve.getPointAt(u), d = s.curve.getTangentAt(u), off = Math.sin(s.i * 2.3) * 6;
+      s.o.position.set(p.x - d.z * off, 3.4, p.z + d.x * off); s.o.rotation.y = Math.atan2(d.x, d.z);
+    }
+    for (const f of this.loops) f(t * A);
     for (const b of this.bubbles) { const k = (n - b.t0) / 1.9; b.s.position.y = b.y0 + k * 24; b.s.material.opacity = k < 0.7 ? 1 : Math.max(0, (1 - k) / 0.3); if (k >= 1) { this.scene.remove(b.s); b.dead = true; } }
     this.bubbles = this.bubbles.filter(b => !b.dead);
     for (const w of this.walkers) {
