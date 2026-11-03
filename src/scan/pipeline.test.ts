@@ -118,7 +118,7 @@ describe('scan pipeline', () => {
     expect(light).toBeGreaterThan(dark); expect(dark).toBeGreaterThan(20);
   });
 
-  it('cuts out like a sticker: one piece, the paper between the parts kept', () => {
+  it('cuts along the drawing itself: the paper between the legs goes, a flower beside it is its own piece', () => {
     const img = canvas(640, 480, [92, 70, 55]);
     fillPoly(img, [[150, 60], [500, 80], [520, 430], [130, 410]], [246, 244, 238]);
     // a stick figure: head, body, arms, legs, and a flower beside it
@@ -128,11 +128,15 @@ describe('scan pipeline', () => {
     stroke(img, [[300, 280], [270, 340]], 2.5, [40, 40, 60]); stroke(img, [[300, 280], [330, 340]], 2.5, [40, 40, 60]);
     stroke(img, [[390, 340], [390, 270]], 2.5, [40, 160, 60]); fillPoly(img, ellipse(390, 260, 14, 14), [230, 80, 120]);
     const v = processScan(img).vector!;
-    expect(v.sil!.outer.length).toBe(1);
+    expect(v.sil!.outer.length).toBe(2);
     expect(v.sil!.holes.length).toBe(0);
-    // the point between the legs, on bare paper, is inside the cut-out
-    const path = new Path2DLike(v.sil!.outer[0]), [x0, y0, x1, y1] = v.artBox!;
-    expect(path.contains((x0 + x1) / 2 - 2, y0 + (y1 - y0) * 0.85)).toBe(true);
+    // the figure's head is inside the cut-out; bare paper between the legs, and between the figure and the flower, is not
+    const paths = v.sil!.outer.map(d => new Path2DLike(d)), inCut = (x: number, y: number) => paths.some(p => p.contains(x, y));
+    // the drawing spans x 250…404, y 125…340 in the photo; its cut-out box adds a thin border all round
+    const [x0, y0, x1, y1] = v.artBox!, b = 1.3, at = (x: number, y: number) => [x0 + b + ((x - 250) / 154) * (x1 - x0 - 2 * b), y0 + b + ((y - 125) / 215) * (y1 - y0 - 2 * b)] as const;
+    expect(inCut(...at(300, 150))).toBe(true);
+    expect(inCut(...at(300, 330))).toBe(false);
+    expect(inCut(...at(365, 300))).toBe(false);
   });
 
   it('sees a small, light pencil drawing on a big sheet', () => {
@@ -155,9 +159,9 @@ describe('scan pipeline', () => {
     expect(r.crop!.height).toBeGreaterThan(r.crop!.width * 0.7); // sail and hull together
   }, 30000);
 
-  // More real photos from families. Each must scan, as one piece, with nothing of the drawing cut off.
+  // More real photos from families. Each must scan with nothing of the drawing cut off (a sun or hearts beside it are pieces of their own).
   const share = (art: Img, test: (r: number, g: number, b: number) => boolean) => { let n = 0; for (let i = 0; i < art.data.length; i += 4) if (test(art.data[i], art.data[i + 1], art.data[i + 2])) n++; return n / (art.width * art.height); };
-  const scanOf = (name: string) => { const img = photoFile(name), r = processScan(img); expect(r).toMatchObject({ ok: true }); expect(r.vector!.sil!.outer.length).toBe(1); return { img, r }; };
+  const scanOf = (name: string) => { const img = photoFile(name), r = processScan(img); expect(r).toMatchObject({ ok: true }); expect(r.vector!.sil!.outer.length).toBeGreaterThanOrEqual(1); return { img, r }; };
 
   it('keeps the hearts around a felt-tip watermelon', () => {
     const { img, r } = scanOf('watermelon-marker.png');

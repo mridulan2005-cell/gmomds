@@ -958,18 +958,27 @@ function cutout(mask: Uint8Array, mw: number, mh: number, solid: Uint8Array, w: 
   const fw = w / W, fh = h / H;
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (solid[Math.min(h - 1, Math.floor((y + 0.5) * fh)) * w + Math.min(w - 1, Math.floor((x + 0.5) * fw))]) S[y * W + x] = 1;
   S = despeckle(S, W, H, 8);
-  // cut like a sticker: one outline around the whole drawing, and everything inside it stays (the paper between
-  // a figure's arms, between two people, inside a house), with a thin white border and rounded corners
-  const reach = Math.max(3, Math.round(Math.max(W, H) * 0.12)), border = Math.max(1, Math.round(Math.max(W, H) * 0.025));
-  S = erode(dilate(S, W, H, reach), W, H, reach - border);
-  { // one outline around all of it: parts far apart (a figure and a flower beside it), bays of paper between them
-    const hp = hull(outline(S, W, H));
-    if (hp.length >= 3) for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (pointInPoly(x + 0.5, y + 0.5, hp)) S[y * W + x] = 1;
-  }
-  // round off the square corners the grid leaves, like scissors would
-  for (let it = 0; it < 2; it++) { const b = boxBlur(Float32Array.from(S), W, H, Math.max(2, border * 2)); for (let i = 0; i < S.length; i++) S[i] = b[i] > 0.5 ? 1 : 0; }
+  // cut along the drawing's own outline, like scissors following it closely: the paper between a cat's legs, under
+  // its tail or between two people is cut away; only a thin white rim stays, which also keeps thin lines sturdy in 3D
+  const D = Math.max(W, H), seal = Math.max(2, Math.round(D * 0.02)), border = Math.max(2, Math.round(D * 0.022));
+  // a body whose outline has a small gap is still a body: seal small gaps, then fill everything the lines enclose
+  const sealed = erode(dilate(S, W, H, seal), W, H, seal);
+  const enc = label(sealed.map(v => (v ? 0 : 1)) as Uint8Array, W, H, false), encOpen = touchesBorder(enc.lab, W, H);
+  for (let i = 0; i < S.length; i++) if (sealed[i] || !encOpen.has(enc.lab[i])) S[i] = 1;
+  S = dilate(S, W, H, border);
+  // round off the corners the grid leaves, without filling in the gaps between parts
+  { const b = boxBlur(Float32Array.from(S), W, H, Math.max(1, Math.round(border / 2))); for (let i = 0; i < S.length; i++) S[i] = b[i] > 0.5 ? 1 : 0; }
   const inside = label(S.map(v => (v ? 0 : 1)) as Uint8Array, W, H, false), open = touchesBorder(inside.lab, W, H);
   for (let i = 0; i < S.length; i++) if (!S[i] && !open.has(inside.lab[i])) S[i] = 1;
+  { // a small piece on its own stays when it is coloured in (a heart, a sun), not when it is a grey speck of the paper
+    const pc = label(S, W, H, true), n = pc.sizes.length, ink = new Float64Array(n), tint = new Float64Array(n);
+    for (let y = 0; y < mh; y++) for (let x = 0; x < mw; x++) {
+      if (!mask[y * mw + x]) continue; const l = pc.lab[Math.min(H - 1, Math.floor(y * hs)) * W + Math.min(W - 1, Math.floor(x * hs))]; if (!l) continue;
+      ink[l]++; if (saturation(colour.data, (y * colour.width + x) * 4) > 0.3) tint[l]++;
+    }
+    const big = Math.max(0, ...pc.sizes.slice(1));
+    for (let i = 0; i < S.length; i++) { const l = pc.lab[i]; if (l && pc.sizes[l] < big * 0.015 && tint[l] < ink[l] * 0.5) S[i] = 0; }
+  }
   // the sticker is a little bigger than the lines: fit it to the 64 box, standing on the same ground line
   const sb = bbox(S, W, H) || { x0: 0, y0: 0, x1: W - 1, y1: H - 1 }, sw = (sb.x1 - sb.x0 + 1) * fw, sh = (sb.y1 - sb.y0 + 1) * fh;
   k = 58 / Math.max(sw, sh); ox = 32 - (sb.x0 * fw + sw / 2) * k; oy = 61 - (sb.y1 + 1) * fh * k;

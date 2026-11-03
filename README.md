@@ -36,7 +36,7 @@ Other commands: `npm test` (scan pipeline tests), `npm run build`, `npm run prev
    - `src/lib/motionRules.ts` gives any word a motion, so typed corrections come alive too.
    - "Not quite?" lets the family pick another guess or type what it is.
 5. **Bring to life** (`src/map/MapScene.ts`, a port of the prototype's `map3d.js`): **the drawing is not redrawn.**
-   - The 3D object is the drawing's own outline, cut out and given depth like a puffy sticker.
+   - The 3D object is the drawing's own outline, cut out closely with a thin white rim (the paper between a cat's legs is cut away) and given depth like a puffy sticker. Areas the lines enclose stay solid. A sun or hearts drawn beside it become small pieces of their own; grey specks of the paper are dropped.
    - The drawing's own image (paper made white, every line and crayon colour kept) is printed on its front and back.
    - It then moves according to what it is: things fly, swim, sway, float, spin, bounce, swing, flicker, rock, flow, walk or hop. Sky things hover high and water things sit low.
    - The newest pair rises up out of the island.
