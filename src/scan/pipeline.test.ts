@@ -163,6 +163,14 @@ describe('scan pipeline', () => {
   const share = (art: Img, test: (r: number, g: number, b: number) => boolean) => { let n = 0; for (let i = 0; i < art.data.length; i += 4) if (test(art.data[i], art.data[i + 1], art.data[i + 2])) n++; return n / (art.width * art.height); };
   const scanOf = (name: string) => { const img = photoFile(name), r = processScan(img); expect(r).toMatchObject({ ok: true }); expect(r.vector!.sil!.outer.length).toBeGreaterThanOrEqual(1); return { img, r }; };
 
+  it('scans an outline drawing that is not filled in: the blank inside of the mug is not the sheet, and stays solid', () => {
+    const { r } = scanOf('mug-outline.png');
+    expect(r.crop!.width).toBeGreaterThan(130); // the whole mug and its handle, not just the paper inside it
+    const v = r.vector!, [x0, y0, x1, y1] = v.artBox!, cut = new Path2DLike(v.sil!.outer[0]);
+    expect(v.sil!.outer.length).toBe(1);
+    expect(cut.contains(x0 + (x1 - x0) * 0.4, y0 + (y1 - y0) * 0.7)).toBe(true); // the middle of the mug's body
+  }, 30000);
+
   it('keeps the hearts around a felt-tip watermelon', () => {
     const { img, r } = scanOf('watermelon-marker.png');
     expect(r.crop!.height).toBeGreaterThan(img.height * 0.9); // the hearts at the top and the rind at the bottom

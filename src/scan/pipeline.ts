@@ -354,6 +354,18 @@ function findSheet(img: Img, maxSide: number, log?: object[], flat = false): Fou
     const fillsView = runsOff && !edgesSeen;
     const edge = fillsView ? 0.8 : seen >= total * (runsOff ? 0.15 : 0.25) ? pass / seen : 0.4;
     if (!fillsView && edge < (strict ? 0.6 : 0.35)) { log?.push({ q, why: 'edge', fill, edge, seen, total }); return; }
+    // the blank inside of a drawn outline (a mug, a house) is walled in by lines too: but just past a sheet's edge is
+    // the table, while just past a drawn line the same paper goes on. Measured a little way out, past the line itself;
+    // lines and dark marks there are skipped, but a dark table is no paper either.
+    if (!fillsView && lit) {
+      const pg = light / lit, band = dilate(cm, w, h, 12), skip = dilate(cm, w, h, 4);
+      let all = 0, out = 0, same = 0;
+      for (let i = 0; i < N; i++) {
+        if (!band[i] || skip[i] || skin[i]) continue; all++;
+        if (g[i] < pg - 0.15) continue; out++; if (Math.abs(g[i] - pg) < 0.07 && sat[i] < 0.12) same++;
+      }
+      if (out > 40 && out > all * 0.4 && same > out * 0.75) { log?.push({ q, why: 'drawn', fill, same: same / out }); return; }
+    }
     const centre = 1 - Math.min(0.8, Math.hypot(cx / w - 0.5, cy / h - 0.5) * 1.3);
     const white = Math.min(1, Math.max(0.2, ((lit ? light / lit : 0) - 0.25) / 0.55)); // drawing paper is white: of two cards, the whiter
     const score = edge ** 1.5 * fill ** 2 * Math.sqrt(Math.min(qa, N) / N) * centre * white;
