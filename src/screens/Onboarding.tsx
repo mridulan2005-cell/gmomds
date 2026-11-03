@@ -35,7 +35,7 @@ export function Onboarding({ go }: { go: Go }) {
       const subj: PersonId = step === 5 ? 'child' : 'dadi', url = pad.current.save();
       const out = url ? { ...faces, [subj]: url } : faces;
       setFaces(out);
-      if (step === 6) { finishOnboarding({ dadi: elderName, child: childName }, picks, out, role); go({ screen: 'home' }); return; }
+      if (step === 6) { finishOnboarding({ dadi: elderName, child: childName }, picks, out, role); go({ screen: 'how' }); return; }
     }
     setStep(step + 1); setPadBlank(true);
   };

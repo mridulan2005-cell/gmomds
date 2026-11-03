@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useState } from 'react';
 import { ensurePrompt, load, useApp, useLoaded } from './lib/store';
 import { Onboarding } from './screens/Onboarding';
+import { HowItWorks } from './screens/HowItWorks';
 import { Home } from './screens/Home';
 import { Scan } from './screens/Scan';
 import { Sketches } from './screens/Sketches';
@@ -9,7 +10,7 @@ import { Scrapbook } from './screens/Scrapbook';
 import type { Dest } from './components';
 
 export type Route =
-  | { screen: 'onboard' } | { screen: 'home' } | { screen: 'scan'; who: 'dadi' | 'child'; replace?: string } | { screen: 'sketches' }
+  | { screen: 'onboard' } | { screen: 'how' } | { screen: 'home' } | { screen: 'scan'; who: 'dadi' | 'child'; replace?: string } | { screen: 'sketches' }
   | { screen: 'stack' } | { screen: 'interior'; mi: number } | { screen: 'place'; placeId: string } | { screen: 'reveal' }
   | { screen: 'book'; placeId?: string };
 export type Go = (r: Route) => void;
@@ -54,6 +55,7 @@ export default function App() {
   if (route) {
     const r = route;
     if (r.screen === 'onboard') body = <Onboarding go={go} />;
+    else if (r.screen === 'how') body = <HowItWorks go={go} />;
     else if (r.screen === 'home') body = <Home go={go} dest={dest} />;
     else if (r.screen === 'scan') body = <Scan key={r.who + (r.replace || '')} who={r.who} replace={r.replace} go={go} />;
     else if (r.screen === 'sketches') body = <Sketches go={go} />;
