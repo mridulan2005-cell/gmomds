@@ -2,7 +2,7 @@
 import { useSyncExternalStore } from 'react';
 import { get, set, del, keys } from 'idb-keyval';
 import type { AppState, Drawing, Month, Pair, Place, PersonId, Prompt } from './types';
-import { LOVE_PROMPTS, THEMES, ICON, MAPS, EXAMPLE_PAIRS, guessFor, fillFor } from './content';
+import { LOVE_PROMPTS, THEMES, ICON, MAPS, EXAMPLE_PAIRS, PAIRS, guessFor, fillFor } from './content';
 
 const KEY = 'dadis-map:state';
 /** Placeholder caricatures, until they draw each other. */
@@ -33,7 +33,7 @@ function addExampleMaps(s: AppState) {
     m.places.forEach((p, pi) => {
       p.status = 'done';
       const pool = EXAMPLE_PAIRS[p.theme];
-      for (let k = 0; k < 7; k++) {
+      for (let k = 0; k < PAIRS; k++) {
         const [prompt, a, b] = pool[(k + n - 1) % pool.length], pid = uid(), at = Date.now() - ((n * 4 - pi) * 7 - k) * DAY;
         const d = sampleDrawing(s, 'dadi', pid, n === 1 ? a : b, at), c = sampleDrawing(s, 'child', pid, n === 1 ? b : a, at);
         p.pairs.push({ promptId: pid, prompt, dadi: d.id, child: c.id, slot: k });
@@ -89,8 +89,8 @@ export function placeById(s: AppState, id: string): { place: Place; mi: number; 
 }
 /** Today's pair is finished when the current prompt already has a pair on the map. */
 export function promptDone(s: AppState) { const p = s.prompt; if (!p) return false; return s.months.some(m => m.places.some(pl => pl.pairs.some(pr => pr.promptId === p.id))); }
-/** The place in progress has all seven pairs and waits for its reveal. */
-export const readyToReveal = (s: AppState) => { const p = currentPlace(s); return !!p && p.pairs.length >= 7; };
+/** The place in progress has all its pairs and waits for its reveal. */
+export const readyToReveal = (s: AppState) => { const p = currentPlace(s); return !!p && p.pairs.length >= PAIRS; };
 
 // ---------- prompts ----------
 function curatedPrompt(s: AppState, theme: string): string {
@@ -106,7 +106,7 @@ let promptBusy = false;
 /** Make sure there is a prompt for today. A missed day carries the prompt over; a finished one is replaced the next day. */
 export async function ensurePrompt(force = false) {
   const s = state, place = currentPlace(s);
-  if (!place || place.pairs.length >= 7 || promptBusy) return;
+  if (!place || place.pairs.length >= PAIRS || promptBusy) return;
   const done = promptDone(s);
   const stillGood = s.prompt && s.prompt.placeId === place.id && (!done || s.prompt.date === today());
   if (!force && stillGood) return;
@@ -160,7 +160,7 @@ export function clearFresh() { if (state.lastFresh) update(s => { s.lastFresh = 
 export function completePlace() {
   update(s => {
     const m = s.months[0], i = m.places.findIndex(p => p.status === 'current');
-    if (i < 0 || m.places[i].pairs.length < 7) return;
+    if (i < 0 || m.places[i].pairs.length < PAIRS) return;
     m.places[i].status = 'done';
     if (i + 1 < m.places.length) m.places[i + 1].status = 'current';
     else s.months.unshift(newMonth(s.months.length));
@@ -184,7 +184,7 @@ export function addSamplePairs(n: number) {
   const kinds = Object.keys(ICON);
   update(s => {
     const place = s.months[0].places.find(p => p.status === 'current'); if (!place) return;
-    for (let k = 0; k < n && place.pairs.length < 7; k++) {
+    for (let k = 0; k < n && place.pairs.length < PAIRS; k++) {
       const pid = uid(), mk = (who: PersonId) => sampleDrawing(s, who, pid, kinds[Math.floor(Math.random() * kinds.length)]);
       const a = mk('dadi'), b = mk('child');
       place.pairs.push({ promptId: pid, prompt: 'Sample: ' + a.kind + ' & ' + b.kind, dadi: a.id, child: b.id, slot: place.pairs.length });

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Go } from '../App';
 import { Arrow, Cloud, Dock, Sun, type Dest } from '../components';
 import { addSamplePairs, currentPlace, ensurePrompt, promptDone, readyToReveal, resetAll, update, useApp } from '../lib/store';
+import { PAIRS, PAIRS_WORD } from '../lib/content';
 
 export function Home({ go, dest }: { go: Go; dest: (d: Dest) => void }) {
   const s = useApp(), done = promptDone(s), ready = readyToReveal(s), place = currentPlace(s);
@@ -21,7 +22,7 @@ export function Home({ go, dest }: { go: Go; dest: (d: Dest) => void }) {
       <div className="home-center">
         {ready ? (
           <>
-            <div className="pill">Seven pairs!</div>
+            <div className="pill">{PAIRS_WORD} pairs!</div>
             <div className="home-done">Our place is ready.</div>
             <button className="btn-primary big" onClick={() => go({ screen: 'reveal' })}><Arrow w={46} h={30} />See what we made</button>
           </>
@@ -65,8 +66,8 @@ function Settings({ close }: { close: () => void }) {
           Grandchild <input value={s.names.child} maxLength={14} onChange={e => update(st => { st.names.child = e.target.value; })} /></div>
         <div className="row">
           <button className="btn-cream small" onClick={() => { void ensurePrompt(true); close(); }}>New prompt now</button>
-          <button className="btn-cream small" disabled={!place || place.pairs.length >= 7} onClick={() => addSamplePairs(1)}>Add a sample pair</button>
-          <button className="btn-cream small" disabled={!place || place.pairs.length >= 6} onClick={() => addSamplePairs(6 - (place?.pairs.length || 0))}>Fill to 6 pairs</button>
+          <button className="btn-cream small" disabled={!place || place.pairs.length >= PAIRS} onClick={() => addSamplePairs(1)}>Add a sample pair</button>
+          <button className="btn-cream small" disabled={!place || place.pairs.length >= PAIRS - 1} onClick={() => addSamplePairs(PAIRS - 1 - (place?.pairs.length || 0))}>Fill to {PAIRS - 1} pairs</button>
         </div>
         <p style={{ fontSize: 16 }}>Sample pairs use placeholder drawings so you can try the map and the reveal without waiting a week. "New prompt now" skips to the next day's prompt.</p>
         <div className="row">

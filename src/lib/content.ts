@@ -2,6 +2,8 @@
 import type { Guess, Motion, Spot } from './types';
 import { motionFor, prettyLabel } from './motionRules';
 
+/** pairs of drawings (prompts) that finish a place and reveal its theme */
+export const PAIRS = 4, PAIRS_WORD = 'Four';
 export const INK = '#3d2b22', DADI = '#2F5FD0', CHILD = '#E4572E', ORANGE = '#F26A2E', SUN = '#FFC93C';
 export const inkOf = (who: 'dadi' | 'child') => (who === 'dadi' ? DADI : CHILD);
 

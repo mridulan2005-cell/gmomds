@@ -1,6 +1,6 @@
 # Dadi's Map
 
-A calm tablet app shared by a grandmother (Dadi) and her grandchild. Each day there is one drawing prompt. Each of them draws an answer on paper and scans it. The app traces their own lines, works out what was drawn, and brings it to life as a small hand-drawn 3D object on a floating island. Seven pairs finish a place and reveal its hidden theme, four places make a map (a town, a hillside, an animal sanctuary…), and every scan is kept in a scrapbook.
+A calm tablet app shared by a grandmother (Dadi) and her grandchild. Each day there is one drawing prompt. Each of them draws an answer on paper and scans it. The app traces their own lines, works out what was drawn, and brings it to life as a small hand-drawn 3D object on a floating island. Four pairs (four prompts) finish a place and reveal its hidden theme, four places make a map (a town, a hillside, an animal sanctuary…), and every scan is kept in a scrapbook.
 
 Built from the design handoff in [`design_handoff/`](design_handoff/README.md): Vite, React, TypeScript, three.js and IndexedDB. It is made for iPad, in landscape or portrait, and can be added to the Home Screen to run full-screen.
 

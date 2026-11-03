@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Go } from '../App';
 import { Chevron, Dock, DrawingSvg, type Dest } from '../components';
-import { DADI, CHILD } from '../lib/content';
+import { DADI, CHILD, PAIRS } from '../lib/content';
 import { scanUrl, useApp } from '../lib/store';
 import type { Drawing, Pair, Place } from '../lib/types';
 
@@ -43,7 +43,7 @@ function PageView({ p, side, num, anim, onClick }: { p: PageData; side: 'l' | 'r
               </div>
             ))}
           </div>
-          {p.place.status !== 'done' && <div className="sb-mystery">Day 7 tells us where we are.</div>}
+          {p.place.status !== 'done' && <div className="sb-mystery">Day {PAIRS} tells us where we are.</div>}
         </div>
       )}
       {p.kind === 'days' && (

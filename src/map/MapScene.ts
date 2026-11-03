@@ -9,6 +9,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js';
 import type { Motion, Spot } from '../lib/types';
+import { PAIRS } from '../lib/content';
 
 export interface DrawCfg {
   id: string; f: string[]; s: string[]; fc?: (string | null)[]; fill: string; owner: 'd' | 'a'; motion: Motion; place: Spot;
@@ -32,6 +33,8 @@ export type Pov = 'd' | 'a' | null;
 
 const DADI = '#2F5FD0', CHILD = '#E4572E', INK = '#3d2b22', DEPTH = 6, BT = 2.4, STEP = 900;
 const SLOTS = [[120, 110], [245, 100], [370, 110], [90, 205], [200, 212], [310, 205], [420, 200]];
+// a place now finishes with four pairs: spread them over the island (older places with seven keep SLOTS)
+const SLOTS4 = [[130, 105], [345, 100], [150, 205], [360, 200]];
 const MPOS = [[-380, -250], [330, -180], [-330, 210], [380, 280]];
 // A finished map comes alive: its four islands sit on one piece of land with a river, a pond, hills, trees and sheep.
 const LAND = [[-700, -380], [-560, -480], [-250, -440], [-120, -510], [120, -450], [300, -480], [520, -430], [720, -300], [700, -80], [780, 60], [720, 200], [760, 420], [570, 560], [300, 530], [100, 580], [-120, 500], [-360, 540], [-610, 480], [-740, 300], [-680, 120], [-780, -60], [-710, -200]];
@@ -342,17 +345,19 @@ export class MapScene {
     if (line) { G.add(new THREE.Mesh(ig.top, line)); G.add(new THREE.Mesh(ig.bot, line)); }
     if (st !== 'done' || o.fade) { const dm = this.basic(st === 'locked' ? '#B5AA94' : INK); ig.dashes.forEach((d: THREE.BufferGeometry) => G.add(new THREE.Mesh(d, dm))); }
     if (st === 'done') this.decor(p, G, !!o.fade);
-    if (st === 'done' && o.walk) this.islandWalkers(p.theme, G, o.walkH || 100, ig.poly);
+    // they walk on the place in progress too; its theme stays a secret, so they just stroll there
+    if (st !== 'locked' && o.walk) this.islandWalkers(st === 'done' ? p.theme : '', G, o.walkH || 100, ig.poly);
     if (o.pick) { mesh.userData.pick = o.pick; this.pickables.push(mesh); }
+    const slots = p.pairs.length <= SLOTS4.length ? SLOTS4 : SLOTS;
     if (st !== 'locked') p.pairs.forEach((pr, j) => {
-      const slot = SLOTS[j % SLOTS.length]; if (!slot) return; const [u, v] = slot;
+      const slot = slots[j % slots.length]; if (!slot) return; const [u, v] = slot;
       ([[pr[0], -32, 0], [pr[1], 32, 10]] as const).forEach(([d, du, dv], side) => {
         if (!d) return;
         const rise = o.fresh === j ? t0 + (side ? 1.2 : 0.35) : 0;
         const b = this.drawing(d, o.S || 72, rise); b.position.set(u - 240 + du, 3, v - 140 + dv); G.add(b);
       });
     });
-    if (st === 'current' && o.q) { const q = this.sprite('?', { size: 150, color: '#8E7FD0' }); q.position.set(0, 150, 0); G.add(q); this.qs.push(q); }
+    if (st === 'current' && o.q) { const q = this.sprite('?', { size: 150, color: '#8E7FD0' }); q.position.set(0, 150, 0); G.add(q); this.qs.push(q); this.huds.push(q); }
     if (st === 'locked') { const l = this.lockSprite(o.lockK || 1.4); l.position.set(0, 70, 0); G.add(l); }
     if (o.label) { const s = this.sprite(o.label, { size: 46, pill: true, bg: st === 'done' ? INK : '#FFF3D1', color: st === 'done' ? '#FFF3D1' : INK, k: 1.25 }); s.position.set(0, 215, -60); s.material.depthTest = false; s.renderOrder = 999; G.add(s); this.huds.push(s); }
     return G;
@@ -371,10 +376,10 @@ export class MapScene {
 
   private month(places: PlaceCfg[], o: { pick?: boolean; labels?: boolean; lite?: boolean; kind?: string } = {}) {
     const G = new THREE.Group(), alive = places.length > 0 && places.every(p => p.status === 'done');
-    // the two of them stroll on a finished place while the map is in progress, and across the whole land once it is finished
-    const walkI = o.pick && !alive ? places.findIndex(p => p.status === 'done') : -1;
+    // while the map is in progress the two of them stroll on this week's place (or a finished one), and across the whole land once it is finished
+    const cur = places.findIndex(p => p.status === 'current'), walkI = o.pick && !alive ? (cur >= 0 ? cur : places.findIndex(p => p.status === 'done')) : -1;
     places.forEach((p, i) => {
-      const lbl = p.status === 'done' ? p.name : p.status === 'current' ? 'This week · ' + Math.max(0, 7 - p.pairs.length) + ' to go' : null;
+      const lbl = p.status === 'done' ? p.name : p.status === 'current' ? 'This week · ' + Math.max(0, PAIRS - p.pairs.length) + ' to go' : null;
       const g = this.island(p, { label: o.labels !== false ? lbl : null, q: true, pick: o.pick && p.status !== 'locked' ? { type: 'place', pi: i } : null, lockK: 1.6, walk: i === walkI, walkH: 80 });
       g.position.set(MPOS[i][0], 0, MPOS[i][1]); G.add(g);
     });

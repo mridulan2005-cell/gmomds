@@ -4,7 +4,7 @@ import { Arrow, Back, Dock, Map3D, Cloud, type Dest } from '../components';
 import { clearFresh, completePlace, currentPlace, getState, placeById, useApp } from '../lib/store';
 import { placeCfg, stackCfg } from '../lib/mapConfig';
 import type { MapConfig, Pick, Pov } from '../map/MapScene';
-import { CHILD, DADI, ORANGE, SUN } from '../lib/content';
+import { CHILD, DADI, ORANGE, PAIRS, PAIRS_WORD, SUN } from '../lib/content';
 
 type MapRoute = Extract<Route, { screen: 'stack' | 'interior' | 'place' | 'reveal' }>;
 
@@ -21,7 +21,7 @@ export function MapView({ route, go, dest }: { route: MapRoute; go: Go; dest: (d
   const [revealPlace] = useState(() => (route.screen === 'reveal' ? currentPlace(getState()) : undefined));
   useEffect(() => {
     if (route.screen !== 'reveal') return;
-    if (!revealPlace || revealPlace.pairs.length < 7) { go({ screen: 'home' }); return; }
+    if (!revealPlace || revealPlace.pairs.length < PAIRS) { go({ screen: 'home' }); return; }
     const ts = [setTimeout(() => setStage(1), 400), setTimeout(() => setStage(2), reduced ? 1200 : 3200), setTimeout(() => setStage(3), reduced ? 1800 : 4600)];
     return () => ts.forEach(clearTimeout);
   }, []);
@@ -42,18 +42,18 @@ export function MapView({ route, go, dest }: { route: MapRoute; go: Go; dest: (d
     if (hit) {
       const { place, mi } = hit, n = place.pairs.length, done = place.status === 'done';
       cfg = { mode: 'place', key: place.id, place: placeCfg(s, place), fresh };
-      title = done ? place.name : 'Theme: ???'; hint = done ? 'Drag to move around · two fingers to turn' : 'Drag to move around · two fingers to turn · the theme appears after seven pairs';
+      title = done ? place.name : 'Theme: ???'; hint = done ? 'Drag to move around · two fingers to turn' : 'Drag to move around · two fingers to turn · the theme appears after ' + PAIRS_WORD.toLowerCase() + ' pairs';
       back = { label: 'Map', to: { screen: 'interior', mi } };
       stepper = { n, fresh: fresh >= 0, done };
       if (done) bookBtn = place.id;
-      if (!done && n >= 7 && place.status === 'current') action = { label: 'See what we made', run: () => go({ screen: 'reveal' }) };
+      if (!done && n >= PAIRS && place.status === 'current') action = { label: 'See what we made', run: () => go({ screen: 'reveal' }) };
     }
   } else if (route.screen === 'reveal' && revealPlace) {
     const p = { ...revealPlace }, solid = stage >= 1;
     cfg = { mode: 'place', key: 'reveal', place: placeCfg(s, p, solid ? 'done' : 'current'), fade: solid };
     title = stage >= 2 ? `This is your ${p.name.replace(/^The /, '')}!` : 'Theme: ???';
-    hint = stage >= 2 ? 'Seven drawings, one place' : '';
-    if (stage >= 2) stepper = { n: 7, fresh: false, done: true };
+    hint = stage >= 2 ? PAIRS_WORD + ' prompts, one place' : '';
+    if (stage >= 2) stepper = { n: PAIRS, fresh: false, done: true };
     if (stage >= 3) action = {
       label: 'See our map', run: () => {
         const monthId = getState().months.find(m => m.places.some(x => x.id === p.id))?.id;
@@ -64,10 +64,10 @@ export function MapView({ route, go, dest }: { route: MapRoute; go: Go; dest: (d
     };
   }
 
-  // the caricatures they drew of each other walk around the finished places
+  // the caricatures they drew of each other walk around the places, finished or in progress
   if (cfg) cfg = { ...cfg, walkers: { d: s.faces.dadi, a: s.faces.child }, names: { d: s.names.dadi, a: s.names.child } };
-  // ...and the map can be seen through either one's eyes
-  const povAvail = (route.screen === 'place' && stepper?.done && fresh < 0) || (route.screen === 'interior' && (s.months[route.mi] || s.months[0]).places.some(p => p.status === 'done'));
+  // ...and the map can be seen through either one's eyes (not while a new pair is rising out of the island)
+  const povAvail = (route.screen === 'place' && !!stepper && fresh < 0) || (route.screen === 'interior' && (s.months[route.mi] || s.months[0]).places.some(p => p.status !== 'locked'));
   const who = (w: 'd' | 'a') => w === 'd' ? { name: s.names.dadi, face: s.faces.dadi, color: DADI } : { name: s.names.child, face: s.faces.child, color: CHILD };
   const me = pov && who(pov), other = pov && who(pov === 'd' ? 'a' : 'd');
 
@@ -110,7 +110,7 @@ export function MapView({ route, go, dest }: { route: MapRoute; go: Go; dest: (d
       {stepper && !pov && (
         <div className="stepper-card">
           <div style={{ display: 'flex', alignItems: 'center' }}>
-            {Array.from({ length: 7 }, (_, k) => {
+            {Array.from({ length: PAIRS }, (_, k) => {
               const filled = k < stepper!.n, newest = stepper!.fresh && k === stepper!.n - 1;
               return (
                 <div key={k} style={{ display: 'flex', alignItems: 'center' }}>
@@ -120,7 +120,7 @@ export function MapView({ route, go, dest }: { route: MapRoute; go: Go; dest: (d
               );
             })}
           </div>
-          <div style={{ fontSize: 22, fontWeight: 800 }}>{stepper.done || stepper.n >= 7 ? 'All seven done' : 7 - stepper.n === 1 ? '1 more to go' : `${7 - stepper.n} more to go`}</div>
+          <div style={{ fontSize: 22, fontWeight: 800 }}>{stepper.done || stepper.n >= PAIRS ? `All ${PAIRS_WORD.toLowerCase()} done` : PAIRS - stepper.n === 1 ? '1 more to go' : `${PAIRS - stepper.n} more to go`}</div>
           {bookBtn && <button className="btn-primary" style={{ height: 46, padding: '0 18px', fontSize: 17, boxShadow: '0 5px 0 #B9481B', rotate: '0deg' }} onClick={() => go({ screen: 'book', placeId: bookBtn! })}>In our scrapbook</button>}
         </div>
       )}
