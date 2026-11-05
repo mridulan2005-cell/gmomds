@@ -856,8 +856,6 @@ export class MapScene {
       ([[-530, 120, 230, 0], [-470, 340, 200, 1], [520, 80, 210, 2], [-560, -200, 240, 3], [560, -250, 220, 1], [300, 380, 180, 0]] as const).forEach(([x, z, h, i]) => { const s = this.npic(TREES[i], h); s.position.set(x, 0, z); G.add(s); this.critters.push({ s, kind: 'sway', ph: R() * 6, amp: 0.03 }); if (fP) grow(s, 0.2); });
       const pm = new THREE.Mesh(disc, this.toon('#5AB0F0')); pm.rotation.x = -Math.PI / 2; pm.scale.setScalar(72); pm.position.set(380, 1, 300); G.add(pm);
       const rg = new THREE.Mesh(this.own(new THREE.TorusGeometry(72, 2.4, 6, 48)), this.basic(INK)); rg.rotation.x = Math.PI / 2; rg.position.set(380, 1.2, 300); G.add(rg); if (fP) { grow(pm, 0.2); grow(rg, 0.2); }
-      const cv = new THREE.CatmullRomCurve3([[-190, 24], [-150, 110], [-40, 200], [150, 240], [380, 210], [590, 220]].map(([x, z]) => new THREE.Vector3(x, 3, z))), dm = this.toon('#FFC93C');
-      cv.getSpacedPoints(Math.round(cv.getLength() / 34)).forEach(p => { if (Math.hypot(p.x - 380, p.z - 300) < 80) return; const s = new THREE.Mesh(dot, dm); s.position.copy(p); G.add(s); });
     }
     if (pn >= 3 && !lite) ['bfly1', 'bfly2', 'bee'].forEach((k, i) => this.flyer(G, k, -200 + i * 220, 240 - i * 30, 60, { size: 28, ph: i * 2, r: 50, at: fr && fr.room === 'park' && fr.i === 2 ? t0 + 1.5 : 0 }));
     // the pin at the edge of the finished map, until the bridge is built: walking to it unlocks the bridge's prompt
