@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Go } from '../App';
 import { Arrow, Cloud, Dock, Sun, type Dest } from '../components';
+import { GearIcon } from '../icons';
 import { addSamplePairs, currentPlace, ensurePrompt, nextPromptAt, placeTotal, promptDone, readyToReveal, resetAll, update, useApp } from '../lib/store';
 
 const DAY = 86_400_000, p2 = (v: number) => String(Math.floor(v)).padStart(2, '0');
@@ -28,7 +29,7 @@ export function Home({ go, dest }: { go: Go; dest: (d: Dest) => void }) {
       <Cloud w={230} style={{ right: 230, top: '38%', animation: 'drift 55s ease-in-out infinite alternate-reverse' }} />
       <Cloud w={150} style={{ left: 110, bottom: 200, animation: 'drift 48s ease-in-out infinite alternate' }} />
       <button className="gear" aria-label="Settings" onClick={() => setSettings(true)}>
-        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1F4C4A" strokeWidth="2.2" strokeLinecap="round"><circle cx="12" cy="12" r="3.2" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1" /></svg>
+        <GearIcon size={32} />
       </button>
       <div className="home-center">
         {ready ? (

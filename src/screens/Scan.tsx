@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Go } from '../App';
 import { Arrow, Perforation } from '../components';
+import { CheckIcon } from '../icons';
 import { DADI, CHILD, QUICK_PICKS, fillFor, guessFor } from '../lib/content';
 import { addDrawing, getState, replaceDrawing, saveScan, uid, updateDrawing, useApp } from '../lib/store';
 import type { Drawing, Guess } from '../lib/types';
@@ -191,7 +192,7 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
             )}
           </div>
           <div className="tray-foot"><span>{name}</span><span style={{ opacity: 0.55, color: '#3d2b22' }}>{who === 'dadi' ? '1 of 2' : '2 of 2'}</span></div>
-          {phase === 'done' && <div className="check"><svg width="40" height="40" viewBox="0 0 28 28" fill="none" stroke="#FFF3D1" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 15 L11 21 L23 7" /></svg></div>}
+          {phase === 'done' && <div className="check"><CheckIcon size={46} /></div>}
         </div>
 
         <div className="scan-actions">

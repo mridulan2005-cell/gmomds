@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useReducedMotion, type Go, type Route } from '../App';
 import { Arrow, Back, Dock, Map3D, Cloud, type Dest } from '../components';
+import { CloseIcon } from '../icons';
 import { clearFresh, completePlace, currentPlace, getState, placeById, placeTotal, useApp } from '../lib/store';
 import { placeCfg, stackCfg } from '../lib/mapConfig';
 import type { MapConfig, Pick, Pov } from '../map/MapScene';
@@ -144,7 +145,7 @@ export function MapView({ route, go, dest }: { route: MapRoute; go: Go; dest: (d
       )}
       {me && other && (
         <>
-          <button className="btn-cream back" onClick={() => setPov(null)}><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="#F26A2E" strokeWidth="3.8" strokeLinecap="round"><path d="M4 4 L16 16 M16 4 L4 16" /></svg>Exit</button>
+          <button className="btn-cream back" onClick={() => setPov(null)}><CloseIcon size={20} />Exit</button>
           <div className="pov-you" style={{ background: me.color }}><span className="face" style={{ backgroundImage: `url(${me.face})` }} />You are {me.name}</div>
           <button className="pov-btn pov-switch" style={{ color: other.color }} onClick={() => setPov(pov === 'd' ? 'a' : 'd')}>
             <span className="face" style={{ backgroundImage: `url(${other.face})`, boxShadow: `inset 0 0 0 3px ${other.color}` }} />Switch to {other.name}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Go } from '../App';
 import { Arrow } from '../components';
+import { EraserIcon, MicIcon, PencilIcon } from '../icons';
 import { DADI, CHILD, INK, LOVE_ART, LOVE_ICON, TILES } from '../lib/content';
 import { finishOnboarding, getState } from '../lib/store';
 import type { PersonId } from '../lib/types';
@@ -52,7 +53,7 @@ export function Onboarding({ go }: { go: Go }) {
             <input key={step} autoFocus value={names[who]} maxLength={16} placeholder={mic.listening ? 'Listening…' : 'Your name'} style={{ color, borderBottomColor: color }}
               onChange={e => setNames({ ...names, [who]: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') next(); }} />
             <button className={'ob-mic' + (mic.listening ? ' on' : '')} aria-label="Say it" onClick={mic.toggle}>
-              <svg width="40" height="44" viewBox="0 0 24 26" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><rect x="8" y="2" width="8" height="14" rx="4" fill="currentColor" /><path d="M4 12 a8 8 0 0 0 16 0" /><path d="M12 20 V24" /></svg>
+              <MicIcon size={50} />
             </button>
           </div>
           <div className="ob-micnote">{mic.error ? "Couldn't hear that. Try again or type it." : mic.listening ? 'Say your name…' : 'Type it, or tap the mic and say it'}</div>
@@ -168,8 +169,8 @@ function DrawFace({ by, subj, ink, subjColor, tint, api, onBlank, next }: {
       <div className="ob-note">Make it silly. Little {subj} will walk around all your maps.</div>
       <div className="ob-draw">
         <div className="ob-tools">
-          {toolBtn('pen', 'Pencil', <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20 L5 15 L16 4 L20 8 L9 19 Z" /><path d="M14 6 L18 10" /></svg>)}
-          {toolBtn('eraser', 'Eraser', <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 20 L3 15 L13 5 L20 12 L12 20 Z" /><path d="M8 10 L15 17" /><path d="M12 20 H21" /></svg>)}
+          {toolBtn('pen', 'Pencil', <PencilIcon size={52} />)}
+          {toolBtn('eraser', 'Eraser', <EraserIcon size={52} />)}
           <button className="ob-clear" onClick={() => { api.current.clear(); onBlank(true); setTool('pen'); }}>Start over</button>
         </div>
         <div className="face-card">

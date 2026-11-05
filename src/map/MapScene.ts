@@ -243,7 +243,7 @@ export class MapScene {
     cv.addEventListener('wheel', e => { if (this.mode !== 'stack') return; e.preventDefault(); this.stackTarget = this.clampStack(this.stackTarget - e.deltaY * 1.4); }, { passive: false });
     // the joystick for walking around through someone's eyes
     const J = document.createElement('div'); J.className = 'joystick';
-    J.innerHTML = '<svg viewBox="0 0 190 190" fill="none" stroke="#E0A25E" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><path d="M83 26 L95 14 L107 26"/><path d="M83 164 L95 176 L107 164"/><path d="M26 83 L14 95 L26 107"/><path d="M164 83 L176 95 L164 107"/></svg>';
+    J.innerHTML = '<svg viewBox="0 0 190 190" fill="none" stroke-linecap="round" stroke-linejoin="round"><g filter="url(#hd-line)" stroke="#1E1B26" stroke-width="7"><path d="M81 28 L95 14 L109 28"/><path d="M81 162 L95 176 L109 162"/><path d="M28 81 L14 95 L28 109"/><path d="M162 81 L176 95 L162 109"/></g></svg>';
     const K = document.createElement('div'); K.className = 'knob'; J.appendChild(K); el.appendChild(J); this.joyEl = J;
     const jmove = (e: PointerEvent) => {
       const r = J.getBoundingClientRect(), R = r.width * 0.34; let dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2); const d = Math.hypot(dx, dy);

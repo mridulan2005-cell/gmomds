@@ -8,6 +8,7 @@ import { Sketches } from './screens/Sketches';
 import { MapView } from './screens/MapView';
 import { Scrapbook } from './screens/Scrapbook';
 import type { Dest } from './components';
+import { HandDrawnDefs } from './icons';
 
 export type Route =
   | { screen: 'onboard' } | { screen: 'how' } | { screen: 'home' } | { screen: 'scan'; who: 'dadi' | 'child'; replace?: string } | { screen: 'sketches' }
@@ -65,6 +66,7 @@ export default function App() {
 
   return (
     <div className="viewport">
+      <HandDrawnDefs />
       <div className={'stage' + (st.portrait ? ' portrait' : '')} style={{ width: st.W, height: st.H, transform: `scale(${st.scale})`, ['--scale' as string]: st.scale, ['--W' as string]: st.W + 'px', ['--H' as string]: st.H + 'px' }}>
         {body}
       </div>
