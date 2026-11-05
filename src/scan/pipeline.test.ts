@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { inflateSync } from 'node:zlib';
-import { detectPaper, detectSheet, processScan, type Img, type Pt } from './pipeline';
+import { detectPaper, detectSheet, findTemplate, homography, processScan, type Img, type Pt } from './pipeline';
 
 // A tiny rasteriser for synthetic "photos".
 function canvas(w: number, h: number, rgb: [number, number, number]): Img {
@@ -303,5 +303,66 @@ describe('scan pipeline', () => {
     expect(r.quad).toBeNull();
     expect(r.ok).toBe(true);
     expect(r.vector!.f.length).toBe(1);
+  });
+});
+
+// The app's printed drawing sheet (grey corner squares, a thin frame), laid at a slant on a table.
+describe('drawing sheet', () => {
+  const sheet = () => { const im = photoFile('drawing-sheet.png'); for (let x = 0; x < im.width; x++) im.data.set([255, 255, 255], x * 4); for (let y = 0; y < im.height; y++) im.data.set([255, 255, 255], y * im.width * 4); return im; };
+  const SW = 422, SH = 596, corners: Pt[] = [[0, 0], [SW, 0], [SW, SH], [0, SH]];
+  const centresOnSheet: Pt[] = [[27.5, 28.5], [392.5, 28.5], [392.5, 568.5], [27.5, 568.5]];
+  const apply = (H: number[], [x, y]: Pt): Pt => { const z = H[6] * x + H[7] * y + 1; return [(H[0] * x + H[1] * y + H[2]) / z, (H[3] * x + H[4] * y + H[5]) / z]; };
+  /** The sheet (with draw() applied in sheet pixels) seen in a 900×700 photo with its corners at quad. */
+  function shot(quad: Pt[], draw?: (s: Img) => void) {
+    const s = sheet(); draw?.(s);
+    const img = canvas(900, 700, [92, 70, 55]), toSheet = homography(quad, corners);
+    for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+      const [u, v] = apply(toSheet, [x + 0.5, y + 0.5]); if (u < 0 || v < 0 || u >= SW || v >= SH) continue;
+      const j = (Math.floor(v) * SW + Math.floor(u)) * 4; img.data.set([s.data[j] * 0.96, s.data[j + 1] * 0.95, s.data[j + 2] * 0.92], (y * img.width + x) * 4);
+    }
+    return { img, centres: centresOnSheet.map(p => apply(homography(corners, quad), p)) };
+  }
+  const tilted: Pt[] = [[260, 40], [640, 70], [680, 650], [220, 620]];
+  const bird = (s: Img) => {
+    stroke(s, ellipse(210, 300, 90, 60), 2.5, [40, 40, 60]);
+    stroke(s, [[190, 360], [180, 420]], 2.5, [40, 40, 60]); stroke(s, [[230, 360], [240, 420]], 2.5, [40, 40, 60]);
+    stroke(s, [[295, 290], [330, 298], [295, 306]], 2.5, [40, 40, 60]);
+  };
+
+  it('finds the four corner squares', () => {
+    const { img, centres } = shot(tilted), t = findTemplate(img);
+    expect(t).not.toBeNull(); expect(t!.markers).toBe(4);
+    t!.centres.forEach((p, i) => expect(Math.hypot(p[0] - centres[i][0], p[1] - centres[i][1])).toBeLessThan(4));
+    expect(detectSheet(img).quad).not.toBeNull();
+  });
+  it('a blank sheet is empty: the squares and the frame are not a drawing', () => {
+    expect(processScan(shot(tilted).img)).toMatchObject({ ok: false, error: 'empty' });
+  });
+  it('scans the drawing inside the frame, and only the drawing', () => {
+    const r = processScan(shot(tilted, bird).img);
+    expect(r).toMatchObject({ ok: true }); expect(r.vector!.sil!.outer.length).toBeGreaterThanOrEqual(1);
+    // the crop hugs the bird (about half the frame's width), not the frame (the frame is ~400 px across here)
+    expect(r.crop!.width).toBeLessThan(400 * 0.8);
+  });
+  it('a drawing that runs up to the frame is kept whole', () => {
+    const r = processScan(shot(tilted, s => { bird(s); stroke(s, [[30, 500], [390, 500]], 2.5, [40, 40, 60]); }).img);
+    expect(r).toMatchObject({ ok: true }); expect(r.crop!.width).toBeGreaterThan(processScan(shot(tilted, bird).img).crop!.width * 1.3);
+  });
+  it('turned sideways', () => {
+    const { img, centres } = shot([[120, 600], [100, 160], [760, 130], [800, 620]], bird), t = findTemplate(img);
+    expect(t).not.toBeNull(); expect(Math.hypot(t!.centres[0][0] - centres[1][0], t!.centres[0][1] - centres[1][1])).toBeLessThan(4);
+    expect(processScan(img)).toMatchObject({ ok: true });
+  });
+  it('a hand over one corner: three squares are enough', () => {
+    const { img, centres } = shot(tilted, bird);
+    fillPoly(img, [[600, 560], [720, 600], [720, 700], [560, 700]], [205, 150, 120]); // hand over the bottom-right square
+    const t = findTemplate(img);
+    expect(t).not.toBeNull(); expect(t!.markers).toBe(3);
+    expect(Math.hypot(t!.centres[2][0] - centres[2][0], t!.centres[2][1] - centres[2][1])).toBeLessThan(16);
+    expect(processScan(img)).toMatchObject({ ok: true });
+  });
+  it('plain paper is not mistaken for the drawing sheet', () => {
+    expect(findTemplate(photo().img)).toBeNull();
+    ['boat-pencil.png', 'house-crayon.png', 'jellyfish-held.png', 'butterfly-lined.png'].forEach(f => expect(findTemplate(photoFile(f)), f).toBeNull());
   });
 });

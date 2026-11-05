@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Dadi's Map drawing sheet (A4). Print at 100% / "actual size".
+     The scanner finds the four grey corner squares and reads only what is inside the frame
+     (src/scan/pipeline.ts, SHEET and findTemplate). Keep the squares solid grey, the corners clear,
+     and these proportions if you redesign it. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="210mm" height="297mm" viewBox="0 0 422 596.8">
+  <rect width="422" height="596.8" fill="#fff"/>
+  <g fill="#777">
+    <rect x="20" y="21" width="15" height="15"/>
+    <rect x="385" y="21" width="15" height="15"/>
+    <rect x="20" y="561" width="15" height="15"/>
+    <rect x="385" y="561" width="15" height="15"/>
+  </g>
+  <rect x="20.5" y="49.5" width="379" height="498" fill="none" stroke="#b3b3b3" stroke-width="1"/>
+</svg>

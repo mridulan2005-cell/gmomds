@@ -455,9 +455,12 @@ export interface Sheet { quad: Quad | null; hands: boolean }
  * quad is null when no clear sheet is found, for example when the paper fills the whole view.
  */
 export function detectSheet(img: Img): Sheet {
-  const f = findSheet(img, 256), { c } = f, { w, h } = c, poly = f.q;
+  const f = findSheet(img, 256), { c } = f, { w, h } = c, t = findTemplate(img, 480);
+  // the drawing sheet's corner squares, when they are in view, say where the sheet is more surely than its edges
+  const poly = t ? t.page.map(([x, y]) => [(x * w) / img.width, (y * h) / img.height] as Pt) : f.q;
   let quad: Quad | null = null;
-  if (poly) { const sx = img.width / w, sy = img.height / h; quad = orderQuad(poly.map(([x, y]) => [x * sx, y * sy] as Pt)); }
+  if (t) quad = t.page;
+  else if (poly) { const sx = img.width / w, sy = img.height / h; quad = orderQuad(poly.map(([x, y]) => [x * sx, y * sy] as Pt)); }
   // hands: skin that reaches in over the sheet from outside it
   const inner: Pt[] = poly
     ? (() => { const cx = poly.reduce((a, p) => a + p[0], 0) / 4, cy = poly.reduce((a, p) => a + p[1], 0) / 4; return poly.map(([x, y]) => [cx + (x - cx) * 0.88, cy + (y - cy) * 0.88] as Pt); })()
@@ -556,6 +559,149 @@ export function drawingArea(img: Img, flat = false, fills = false): Uint8Array {
   return area;
 }
 
+// ---------- 1b. the app's own drawing sheet ----------
+/**
+ * The printed drawing sheet (public/drawing-sheet.svg): a grey square in each corner and a thin frame that the
+ * drawing goes inside. Measured in units where the squares' centres run 0..1: u across the short side, v along the
+ * long side. side: a square's width; frame and page: the frame line and the paper's edge.
+ */
+export const SHEET = { aspect: 540 / 365, side: 15 / 365, frameU: [-0.019, 1.019], frameV: [0.039, 0.961], pageU: [-0.074, 1.082], pageV: [-0.052, 1.052] };
+
+/** The drawing sheet as found in a photo: the squares' centres, the paper's edge, and the inside of the frame. */
+export interface Template { centres: Quad; page: Quad; frame: Quad; markers: 3 | 4 }
+
+/** (s, t) in the unit square of quad q (tl, tr, br, bl) → image point, under perspective. */
+function unitMap(q: Quad) {
+  const H = homography([[0, 0], [1, 0], [1, 1], [0, 1]], q);
+  return (s: number, t: number): Pt => { const z = H[6] * s + H[7] * t + 1; return [(H[0] * s + H[1] * t + H[2]) / z, (H[3] * s + H[4] * t + H[5]) / z]; };
+}
+/** A rectangle given in sheet units (u across the short side, v along the long side), as a quad in the image. */
+function sheetRect(c: Quad, U: number[], V: number[]): Quad {
+  const d = (a: Pt, b: Pt) => Math.hypot(a[0] - b[0], a[1] - b[1]), map = unitMap(c);
+  // the long side may run across the photo (the sheet turned sideways)
+  const portrait = d(c[0], c[1]) + d(c[3], c[2]) <= d(c[0], c[3]) + d(c[1], c[2]);
+  const [S, T] = portrait ? [U, V] : [V, U];
+  return [map(S[0], T[0]), map(S[1], T[0]), map(S[1], T[1]), map(S[0], T[1])];
+}
+
+/**
+ * Find the drawing sheet by its four grey corner squares. Much surer than finding a plain sheet's edges: the squares
+ * are solid, grey, surrounded by paper and sit in a known pattern, so a busy table, a lap or a white wall can't pass
+ * for them. A hand over one corner is fine: three squares fix the fourth. null when this isn't the drawing sheet.
+ */
+export function findTemplate(img: Img, maxSide = 800): Template | null {
+  const s = resize(img, maxSide), w = s.width, h = s.height, d = s.data, wl = whiteLevel(s), n = w * h, k = img.width / w;
+  const g = new Float32Array(n), dark = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    const r = d[i * 4] / wl[0], gg = d[i * 4 + 1] / wl[1], b = d[i * 4 + 2] / wl[2], mx = Math.max(r, gg, b), mn = Math.min(r, gg, b);
+    g[i] = (r + gg + b) / 3; dark[i] = g[i] < 0.72 && (mx > 0 ? (mx - mn) / mx : 0) < 0.3 ? 1 : 0;
+  }
+  const { lab, sizes } = label(dark, w, h), L = sizes.length, maxA = (Math.min(w, h) * 0.09) ** 2;
+  const st = Array.from({ length: L }, () => ({ x: 0, y: 0, xx: 0, yy: 0, xy: 0, g: 0, edge: false }));
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const l = lab[y * w + x]; if (!l || sizes[l] < 16 || sizes[l] > maxA) continue;
+    const o = st[l]; o.x += x; o.y += y; o.xx += x * x; o.yy += y * y; o.xy += x * y; o.g += g[y * w + x];
+    if (x === 0 || y === 0 || x === w - 1 || y === h - 1) o.edge = true;
+  }
+  type M = { x: number; y: number; a: number };
+  const marks: (M & { ring: number })[] = [];
+  for (let l = 1; l < L; l++) {
+    const A = sizes[l], o = st[l]; if (A < 16 || A > maxA || o.edge) continue;
+    const cx = o.x / A, cy = o.y / A, vx = o.xx / A - cx * cx, vy = o.yy / A - cy * cy, vxy = o.xy / A - cx * cy;
+    const tr = vx + vy, det = vx * vy - vxy * vxy, disc = Math.sqrt(Math.max(0, (tr * tr) / 4 - det)), l1 = tr / 2 + disc, l2 = tr / 2 - disc;
+    if (l2 <= 0 || l1 / l2 > 3.2) continue; // square-ish (seen at a slant: a little stretched)
+    const solid = A / (12 * Math.sqrt(det)); if (solid < 0.72 || solid > 1.3) continue; // filled, not an outline
+    // ringed by paper: brighter than the square all the way round
+    const a = Math.sqrt(A), mean = o.g / A; let ring = 0;
+    for (let j = 0; j < 24; j++) {
+      const x = Math.round(cx + Math.cos((j / 24) * 2 * Math.PI) * a * 1.25), y = Math.round(cy + Math.sin((j / 24) * 2 * Math.PI) * a * 1.25);
+      if (x >= 0 && y >= 0 && x < w && y < h && g[y * w + x] > mean + 0.22 && g[y * w + x] > 0.6) ring++;
+    }
+    if (ring >= 17) marks.push({ x: cx, y: cy, a, ring });
+  }
+  if (marks.length < 3) return null;
+  marks.sort((p, q) => q.ring - p.ring); const cand = marks.slice(0, 30);
+  const dist = (p: M, q: M) => Math.hypot(p.x - q.x, p.y - q.y);
+  // how well four centres (tl, tr, br, bl) and their squares' sizes fit the sheet; Infinity when they don't
+  const fit = (q: M[]): number => {
+    for (let i = 0; i < 4; i++) { const o = q[i], p = q[(i + 1) % 4], r = q[(i + 2) % 4]; if ((p.x - o.x) * (r.y - p.y) - (p.y - o.y) * (r.x - p.x) <= 0) return Infinity; }
+    const top = dist(q[0], q[1]), bot = dist(q[3], q[2]), lft = dist(q[0], q[3]), rgt = dist(q[1], q[2]);
+    if (Math.max(top, bot) / Math.min(top, bot) > 1.7 || Math.max(lft, rgt) / Math.min(lft, rgt) > 1.7) return Infinity;
+    const hs = (top + bot) / 2, vs = (lft + rgt) / 2, ratio = Math.max(hs, vs) / Math.min(hs, vs);
+    const as = q.map(m => m.a).filter(a => a > 0), am = as.reduce((t, a) => t + a, 0) / as.length, rel = am / Math.min(hs, vs);
+    if (ratio < SHEET.aspect / 1.4 || ratio > SHEET.aspect * 1.4 || rel < SHEET.side / 2 || rel > SHEET.side * 2) return Infinity;
+    if (Math.max(...as) / Math.min(...as) > 1.9) return Infinity;
+    return Math.abs(Math.log(ratio / SHEET.aspect)) + Math.abs(Math.log(rel / SHEET.side)) + 0.5 * Math.log(Math.max(...as) / Math.min(...as));
+  };
+  // the sheet's margin runs between neighbouring squares: blank paper (the frame line crosses it once at most)
+  const clear = (p: M, q: M): boolean => {
+    let ok = 0; const steps = 32;
+    for (let j = 3; j < steps - 2; j++) {
+      const x = Math.round(p.x + ((q.x - p.x) * j) / steps), y = Math.round(p.y + ((q.y - p.y) * j) / steps);
+      if (x >= 0 && y >= 0 && x < w && y < h && g[y * w + x] > 0.7) ok++;
+    }
+    return ok >= (steps - 5) * 0.8;
+  };
+  const edges = (q: M[]) => [0, 1, 2, 3].filter(i => q[i].a > 0 && q[(i + 1) % 4].a > 0 && clear(q[i], q[(i + 1) % 4])).length;
+  const order = (q: M[]): M[] => { const o = orderQuad(q.map(m => [m.x, m.y] as Pt)); return o.map(p => q.find(m => m.x === p[0] && m.y === p[1])!); };
+  let best: M[] | null = null, bestScore = Infinity, found: 3 | 4 = 4;
+  const N = cand.length;
+  for (let a = 0; a < N; a++) for (let b = a + 1; b < N; b++) for (let c = b + 1; c < N; c++) for (let e = c + 1; e < N; e++) {
+    const q = order([cand[a], cand[b], cand[c], cand[e]]), sc = fit(q); if (sc < bestScore && edges(q) >= 3) { bestScore = sc; best = q; }
+  }
+  if (!best) { // a hand or a thumb over one corner: the other three fix it (an L of three squares)
+    found = 3;
+    for (let a = 0; a < N; a++) for (let b = a + 1; b < N; b++) for (let c = b + 1; c < N; c++) {
+      const t = [cand[a], cand[b], cand[c]];
+      for (let k2 = 0; k2 < 3; k2++) {
+        const o = t[k2], p = t[(k2 + 1) % 3], r = t[(k2 + 2) % 3];
+        const cos = ((p.x - o.x) * (r.x - o.x) + (p.y - o.y) * (r.y - o.y)) / (dist(o, p) * dist(o, r)); if (Math.abs(cos) > 0.45) continue;
+        const four: M = { x: p.x + r.x - o.x, y: p.y + r.y - o.y, a: 0 };
+        if (four.x < 0 || four.y < 0 || four.x >= w || four.y >= h) continue; // (the hidden square is in view, under a hand)
+        const q = order([o, p, r, four]), sc = fit(q) + 0.5; if (sc < bestScore && edges(q) === 2) { bestScore = sc; best = q; }
+      }
+    }
+  }
+  if (!best) return null;
+  let centres = best.map(m => [m.x * k, m.y * k] as Pt) as Quad;
+  if (found === 3) {
+    // three squares and the paper's corner beyond the hidden one fix the sheet, perspective and all (the plain
+    // completion of three points assumes no perspective)
+    const hid = best.findIndex(m => !m.a), guess = sheetRect(centres, SHEET.pageU, SHEET.pageV)[hid];
+    const fs = findSheet(img, 256), paper = fs.q?.map(([x, y]) => [(x * img.width) / fs.c.w, (y * img.height) / fs.c.h] as Pt); // (not detectPaper: that looks for the sheet's squares again)
+    const short = Math.min(...[0, 1, 2, 3].map(i => Math.hypot(centres[i][0] - centres[(i + 1) % 4][0], centres[i][1] - centres[(i + 1) % 4][1])));
+    const near = paper?.slice().sort((p, q) => Math.hypot(p[0] - guess[0], p[1] - guess[1]) - Math.hypot(q[0] - guess[0], q[1] - guess[1]))[0];
+    if (near && Math.hypot(near[0] - guess[0], near[1] - guess[1]) < short * 0.3) {
+      const d = (a: Pt, b: Pt) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+      const portrait = d(centres[0], centres[1]) + d(centres[3], centres[2]) <= d(centres[0], centres[3]) + d(centres[1], centres[2]);
+      const [S, T] = portrait ? [SHEET.pageU, SHEET.pageV] : [SHEET.pageV, SHEET.pageU];
+      const unit: Pt[] = [[0, 0], [1, 0], [1, 1], [0, 1]], at: Pt = [[S[0], T[0]], [S[1], T[0]], [S[1], T[1]], [S[0], T[1]]][hid] as Pt;
+      const src = unit.map((u, i) => (i === hid ? at : u)), dst = centres.map((c, i) => (i === hid ? near : c));
+      const H = homography(src, dst), map = (s: number, t: number): Pt => { const z = H[6] * s + H[7] * t + 1; return [(H[0] * s + H[1] * t + H[2]) / z, (H[3] * s + H[4] * t + H[5]) / z]; };
+      centres = unit.map(([u, v]) => map(u, v)) as Quad;
+    }
+  }
+  const inset = 0.012; // keep clear of the frame line itself
+  return {
+    centres, markers: found,
+    page: sheetRect(centres, SHEET.pageU, SHEET.pageV),
+    frame: sheetRect(centres, [SHEET.frameU[0] + inset, SHEET.frameU[1] - inset], [SHEET.frameV[0] + inset, SHEET.frameV[1] - inset]),
+  };
+}
+
+/**
+ * Inside the drawing sheet's frame everything is paper: only a hand (skin reaching in from the edge, and a little
+ * around it) is not part of the drawing. Red and orange crayon is not a hand: a hand is big and not that vivid.
+ */
+function handsAway(img: Img): Uint8Array {
+  const c = classify(resize(img, 320)), { w, h } = c, W = img.width, H = img.height;
+  const sm = c.skin.map((v, i) => (v && c.sat[i] < 0.7 ? 1 : 0)) as Uint8Array, sl = label(sm, w, h), edge = touchesBorder(sl.lab, w, h);
+  const hand = sm.map((v, i) => (v && edge.has(sl.lab[i]) && sl.sizes[sl.lab[i]] >= w * h * 0.015 ? 1 : 0)) as Uint8Array, gone = dilate(hand, w, h, 2);
+  const area = new Uint8Array(W * H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) area[y * W + x] = gone[Math.min(h - 1, Math.floor((y * h) / H)) * w + Math.min(w - 1, Math.floor((x * w) / W))] ? 0 : 1;
+  return area;
+}
+
 // ---------- 2. perspective correction ----------
 function solve(A: number[][], b: number[]): number[] {
   const n = b.length, M = A.map((r, i) => [...r, b[i]]);
@@ -567,7 +713,7 @@ function solve(A: number[][], b: number[]): number[] {
   return M.map((r, i) => r[n] / r[i]);
 }
 /** Homography mapping dst points → src points. */
-function homography(dst: Pt[], src: Pt[]): number[] {
+export function homography(dst: Pt[], src: Pt[]): number[] {
   const A: number[][] = [], b: number[] = [];
   for (let i = 0; i < 4; i++) {
     const [x, y] = dst[i], [u, v] = src[i];
@@ -657,7 +803,7 @@ function despeckle(m: Uint8Array, w: number, h: number, minArea: number): Uint8A
  * Keep only the drawing: drop marks that touch the paper's edge (shadows, the tray, the table) and
  * small stray specks far away from the drawing (smudges, a crease), unless they are a big part of it.
  */
-export function onlyDrawing(m: Uint8Array, w: number, h: number, colour?: Uint8Array, fills = false): Uint8Array {
+export function onlyDrawing(m: Uint8Array, w: number, h: number, colour?: Uint8Array, fills = false, framed = false): Uint8Array {
   const { lab, sizes } = label(m, w, h), n = sizes.length;
   if (n <= 1) return m;
   // crayon and felt-tip colour is always part of the drawing (a sun in the corner, a cloud at the top): only grey
@@ -679,7 +825,7 @@ export function onlyDrawing(m: Uint8Array, w: number, h: number, colour?: Uint8A
     const long = Math.max(r.x1 - r.x0, r.y1 - r.y0) > Math.max(w, h) * 0.3;
     // (when the sheet fills the view, the edge of the view is not the sheet's edge: only a thin strip can be the table)
     const drawn = isColour(l) && !long && (fills || !strip);
-    keep[l] = edge[l] && inner && !drawn && (strip || (!fills && sizes[l] < inner * 0.35)) ? 0 : 1;
+    keep[l] = !framed && edge[l] && inner && !drawn && (strip || (!fills && sizes[l] < inner * 0.35)) ? 0 : 1;
   }
   let total = 0; for (let l = 1; l < n; l++) if (keep[l]) total += sizes[l];
   // the main drawing: every kept mark that is a real part of it
@@ -1064,7 +1210,14 @@ function cutout(mask: Uint8Array, mw: number, mh: number, solid: Uint8Array, w: 
 
 // ---------- the whole thing ----------
 export function processScan(photo: Img, opts: { minSharpness?: number } = {}): ScanResult {
-  const src = resize(photo, 1600), found = detectPaper(src);
+  const src = resize(photo, 1600);
+  // the app's own drawing sheet: its corner squares say exactly where the sheet is and where its frame is
+  const t = findTemplate(src);
+  if (t) {
+    const r = scanSheet(src, t.page, opts, false, true, warp(src, t.frame, 1000));
+    if (r.ok || r.error !== 'not-drawing') return r;
+  }
+  const found = detectPaper(src);
   // the paper fills the view and the one "edge" found runs through the drawing: the whole view is the sheet
   const fills = !!found && paperBeyond(src, found), quad = fills ? null : found;
   const r = scanSheet(src, quad, opts, false, fills);
@@ -1073,19 +1226,20 @@ export function processScan(photo: Img, opts: { minSharpness?: number } = {}): S
   return r;
 }
 
-function scanSheet(src: Img, quad: Quad | null, opts: { minSharpness?: number }, whole = false, fills = false): ScanResult {
-  const paper = quad ? warp(src, quad, 1000) : resize(src, 1000);
+/** inside: the inside of the drawing sheet's frame, already flattened (then quad is only where the sheet is). */
+function scanSheet(src: Img, quad: Quad | null, opts: { minSharpness?: number }, whole = false, fills = false, inside?: Img): ScanResult {
+  const paper = inside ?? (quad ? warp(src, quad, 1000) : resize(src, 1000));
   const w = paper.width, h = paper.height;
-  let m: Uint8Array = inkMask(paper, quad ? 0.025 : 0.006);
+  let m: Uint8Array = inkMask(paper, inside ? 0.008 : quad ? 0.025 : 0.006);
   // only marks on the sheet: hands, their shadows and the background are not part of the drawing
-  const area = drawingArea(paper, !!quad || fills, fills);
+  const area = inside ? handsAway(paper) : drawingArea(paper, !!quad || fills, fills);
   for (let i = 0; i < m.length; i++) if (!area[i]) m[i] = 0;
   m = despeckle(m, w, h, Math.max(6, Math.round(w * h * 0.00004)));
   // a photo of a room or a face is mostly "ink"; a drawing on paper is mostly paper
   if (m.reduce((a, v) => a + v, 0) > w * h * 0.55) return { ok: false, error: 'not-drawing', quad };
   const colour = new Uint8Array(w * h);
   for (let i = 0; i < colour.length; i++) { const r = paper.data[i * 4], g = paper.data[i * 4 + 1], b = paper.data[i * 4 + 2], mx = Math.max(r, g, b), mn = Math.min(r, g, b); colour[i] = mx > 50 && (mx - mn) / mx > 0.28 ? 1 : 0; }
-  m = onlyDrawing(m, w, h, colour, fills);
+  m = onlyDrawing(m, w, h, colour, fills, !!inside); // (inside the sheet's frame, nothing reaches in from a table)
   const inkCount = m.reduce((a, v) => a + v, 0);
   if (inkCount < w * h * 0.0004) return { ok: false, error: 'empty', quad }; // (a small pencil drawing can be under 0.1% of the sheet)
   const g = toGray(paper), sharp = sharpness(g, m, w, h);
