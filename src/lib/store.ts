@@ -164,13 +164,13 @@ export async function ensurePrompt(force = false) {
     return;
   }
   promptBusy = true;
-  let text = curatedPrompt(s, place.theme);
+  let text = curatedPrompt(s, place.theme), hi: string | undefined;
   try {
     const r = await fetch('/api/prompt', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ theme: place.theme, loves: s.loves, recent: s.recentPrompts, childName: s.names.child }), signal: AbortSignal.timeout(9000) });
-    if (r.ok) { const j = await r.json(); if (j.text && j.text.length < 80) text = j.text; }
+    if (r.ok) { const j = await r.json(); if (j.text && j.text.length < 80) { text = j.text; if (typeof j.hi === 'string' && j.hi.length < 120) hi = j.hi; } }
   } catch { /* offline: curated list */ }
   promptBusy = false;
-  update(st => { const p: Prompt = { id: uid(), text, date: today(), placeId: place.id }; st.prompt = p; st.recentPrompts = [...st.recentPrompts, text].slice(-20); st.scanning = null; });
+  update(st => { const p: Prompt = { id: uid(), text, date: today(), placeId: place.id, ...(hi ? { hi } : {}) }; st.prompt = p; st.recentPrompts = [...st.recentPrompts, text].slice(-20); st.scanning = null; });
 }
 
 // ---------- scanning ----------
@@ -195,7 +195,7 @@ export function addDrawing(d: Drawing) {
     // the grandchild's scan completes the pair: place it on the island
     const dadiId = single ? d.id : s.scanning?.dadi; const place = s.months[0].places.find(p => p.status === 'current');
     if (!dadiId || !place) return;
-    const pair: Pair = { promptId: s.prompt.id, prompt: s.prompt.text, dadi: dadiId, child: d.id, slot: place.pairs.length, ...pairExtra(s.prompt) };
+    const pair: Pair = { promptId: s.prompt.id, prompt: s.prompt.text, ...(s.prompt.hi ? { hi: s.prompt.hi } : {}), dadi: dadiId, child: d.id, slot: place.pairs.length, ...pairExtra(s.prompt) };
     place.pairs.push(pair); s.scanning = null; s.lastFresh = { placeId: place.id, slot: pair.slot }; s.doneAt = Date.now();
   });
 }
@@ -233,8 +233,8 @@ export function reachPin() {
 /** Waiting for them to walk to the pin (the bridge is next, and not unlocked yet). */
 export const awaitingPin = (s: AppState) => { const p = currentPlace(s); return !!p && p.room === 'bridge' && !s.pinReached; };
 
-export function finishOnboarding(names: { dadi: string; child: string }, loves: { dadi: string[]; child: string[] }, faces: { dadi: string; child: string }, role: string) {
-  update(s => { s.names = names; s.loves = loves; s.faces = faces; s.role = role; s.onboarded = true; });
+export function finishOnboarding(names: { dadi: string; child: string }, loves: { dadi: string[]; child: string[] }, faces: { dadi: string; child: string }, role: string, lang?: string) {
+  update(s => { s.names = names; s.loves = loves; s.faces = faces; s.role = role; s.onboarded = true; if (lang) s.lang = lang; });
   void ensurePrompt();
 }
 

@@ -6,6 +6,8 @@ import { DADI, CHILD, INK, QUICK_PICKS, fillFor, guessFor } from '../lib/content
 import { addDrawing, getState, placeholderDrawing, replaceDrawing, saveScan, uid, updateDrawing, useApp } from '../lib/store';
 import { analyzeHouse } from '../map/house';
 import type { Drawing, Guess } from '../lib/types';
+import { useT } from '../lib/i18n';
+import { useSay } from '../lib/voice';
 import { detect, grab, process, recognise, thumb, thumbDiff, toBlob, toCanvas } from '../scan/scanner';
 import { warmClip } from '../scan/clip';
 import { warmDoodle } from '../scan/doodle';
@@ -21,7 +23,7 @@ const TAKE = /\b(take|take it|click|snap|cheese)\b|टेक|ले लो|ख�
 
 /** `replace`: a retake of a drawing already scanned (from today's sketches); the new scan takes its place. */
 export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; replace?: string }) {
-  const s = useApp(), name = who === 'dadi' ? s.names.dadi : s.names.child, color = who === 'dadi' ? DADI : CHILD;
+  const s = useApp(), name = who === 'dadi' ? s.names.dadi : s.names.child, color = who === 'dadi' ? DADI : CHILD, t = useT();
   const [phase, setPhase] = useState<Phase>('starting');
   const [err, setErr] = useState<ScanError | 'not-drawing' | 'camera' | 'failed' | null>(null);
   const [quad, setQuad] = useState<{ q: Quad; w: number; h: number } | null>(null);
@@ -181,12 +183,17 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
   const choose = (g: Guess) => { if (drawingId) updateDrawing(drawingId, { kind: g.kind, label: g.label, motion: g.motion, place: g.place, fillColor: fillFor(g.kind, who === 'dadi' ? 0 : 1), confidence: 1 }); setFixing(false); };
 
   const live = phase === 'camera' || phase === 'starting';
-  const head = phase === 'processing' || phase === 'scanning' ? <span>{house ? 'Looking for the door…' : 'Scanning. Keep it still.'}</span>
-    : phase === 'done' ? <span>{house ? (door?.found ? 'Door found! It’s the darkest colour.' : 'Scanned! We’ll put a door in the middle.') : "It's scanned!"}</span>
-    : phase === 'error' ? <span>{err === 'blurry' ? 'That came out a bit blurry' : err === 'empty' ? "We couldn't see a drawing" : err === 'not-drawing' ? 'That looks like more than a drawing' : 'Let’s try that again'}</span>
-    : house ? <span>Put your dream house on the tray</span>
-    : shared ? <span>Put your drawing on the tray</span>
-    : <><span>Put</span><span className="name-tag" style={{ background: color }}>{name}</span><span>'s drawing on the tray</span></>;
+  const head = phase === 'processing' || phase === 'scanning' ? <span>{house ? t('Looking for the door…') : t('Scanning. Keep it still.')}</span>
+    : phase === 'done' ? <span>{house ? (door?.found ? t('Door found! It’s the darkest colour.') : t('Scanned! We’ll put a door in the middle.')) : t("It's scanned!")}</span>
+    : phase === 'error' ? <span>{err === 'blurry' ? t('That came out a bit blurry') : err === 'empty' ? t("We couldn't see a drawing") : err === 'not-drawing' ? t('That looks like more than a drawing') : t('Let’s try that again')}</span>
+    : house ? <span>{t('Put your dream house on the tray')}</span>
+    : shared ? <span>{t('Put your drawing on the tray')}</span>
+    : <span>{t.x("Put {name}'s drawing on the tray", { name: <span className="name-tag" style={{ background: color }}>{name}</span> })}</span>;
+  // the voice: whose drawing goes on the tray, and what next
+  useSay(phase === 'done' ? t("It's scanned! Tap the orange button to go on.") : phase === 'error' ? t("Let's try that again. Tap Try again.")
+    : phase === 'processing' || phase === 'scanning' ? null
+    : house ? t('Put your dream house on the tray and keep it still. Then tap Take.') : shared ? t('Put your drawing on the tray and keep it still. Then tap Take.')
+    : t("Put {name}'s drawing on the tray and keep it still. Then tap Take.", { name }), t.lang);
 
   return (
     <div className="screen scan safe-top">
@@ -202,9 +209,9 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
                 <polygon points={quad.q.map(p => `${p[0]},${p[1]}`).join(' ')} fill="rgba(255,201,60,.18)" stroke="#FFC93C" strokeWidth={quad.w / 90} strokeLinejoin="round" />
               </svg>
             )}
-            {live && <div className="hold">{phase === 'starting' ? 'Opening the camera…' : hands ? 'Hands away from the paper' : quad ? (steady >= 2 ? 'Hold still…' : 'Found the paper') : 'Paper goes here'}</div>}
-            {live && listening && <div className="say-take">🎤 Say “take”</div>}
-            {phase === 'nocam' && <div className="paper-slot">Paper goes here</div>}
+            {live && <div className="hold">{phase === 'starting' ? t('Opening the camera…') : hands ? t('Hands away from the paper') : quad ? (steady >= 2 ? t('Hold still…') : t('Found the paper')) : t('Paper goes here')}</div>}
+            {live && listening && <div className="say-take">{t('🎤 Say “take”')}</div>}
+            {phase === 'nocam' && <div className="paper-slot">{t('Paper goes here')}</div>}
             {(phase === 'processing' || phase === 'error') && still && <img className="still" src={still} alt="" style={{ objectFit: 'cover', opacity: phase === 'error' ? 0.45 : 1 }} />}
             {phase === 'done' && !cropUrl && drawing?.source === 'sample' && (
               <div className="scan-paper">
@@ -222,34 +229,34 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
               </div>
             )}
           </div>
-          <div className="tray-foot"><span>{shared ? `${s.names.dadi} & ${s.names.child}` : name}</span><span style={{ opacity: 0.55, color: '#3d2b22' }}>{shared ? 'Together' : who === 'dadi' ? '1 of 2' : '2 of 2'}</span></div>
+          <div className="tray-foot"><span>{shared ? `${s.names.dadi} & ${s.names.child}` : name}</span><span style={{ opacity: 0.55, color: '#3d2b22' }}>{shared ? t('Together') : who === 'dadi' ? '1/2' : '2/2'}</span></div>
           {phase === 'done' && <div className="check"><CheckIcon size={58} /></div>}
         </div>
 
         <div className="scan-actions">
           {phase === 'done' && drawing && (
             <div className="guess">
-              <span>Looks like</span><span className="chip">{drawing.label}</span>
-              <button className="link" onClick={() => setFixing(true)}>Not quite?</button>
+              <span>{t('Looks like')}</span><span className="chip">{drawing.label}</span>
+              <button className="link" onClick={() => setFixing(true)}>{t('Not quite?')}</button>
             </div>
           )}
-          {phase === 'nocam' && <div className="notice">The camera isn't available here. You can take or choose a photo of the drawing instead.</div>}
-          {phase === 'error' && <div className="notice">{err === 'blurry' ? 'Hold the tablet still and try again.' : err === 'empty' ? 'We found the paper but no pencil marks on it. Make sure the drawing faces the camera, or press a little harder with the pencil, and try again.' : err === 'not-drawing' ? 'Hold the paper so it fills most of the picture, with nothing else in front of it, and try again.' : 'Something went wrong while scanning. Please try again.'}</div>}
+          {phase === 'nocam' && <div className="notice">{t("The camera isn't available here. You can take or choose a photo of the drawing instead.")}</div>}
+          {phase === 'error' && <div className="notice">{t(err === 'blurry' ? 'Hold the tablet still and try again.' : err === 'empty' ? 'We found the paper but no pencil marks on it. Make sure the drawing faces the camera, or press a little harder with the pencil, and try again.' : err === 'not-drawing' ? 'Hold the paper so it fills most of the picture, with nothing else in front of it, and try again.' : 'Something went wrong while scanning. Please try again.')}</div>}
 
-          {(phase === 'processing' || phase === 'scanning') && <div className="busy">Scanning…</div>}
-          {live && <button className="btn-primary" disabled={phase === 'starting'} onClick={() => void capture('camera')}><Arrow />Take</button>}
-          {phase === 'nocam' && <button className="btn-primary" onClick={() => fileIn.current?.click()}><Arrow />Choose a photo</button>}
-          {phase === 'error' && <button className="btn-primary" onClick={retry}><Arrow />Try again</button>}
+          {(phase === 'processing' || phase === 'scanning') && <div className="busy">{t('Scanning…')}</div>}
+          {live && <button className="btn-primary" disabled={phase === 'starting'} onClick={() => void capture('camera')}><Arrow />{t('Take')}</button>}
+          {phase === 'nocam' && <button className="btn-primary" onClick={() => fileIn.current?.click()}><Arrow />{t('Choose a photo')}</button>}
+          {phase === 'error' && <button className="btn-primary" onClick={retry}><Arrow />{t('Try again')}</button>}
           {phase === 'done' && (replace || who === 'child' || shared
-            ? <button className="btn-primary" onClick={() => go({ screen: 'sketches' })}><Arrow />See today's sketches</button>
-            : <button className="btn-primary" onClick={() => go({ screen: 'scan', who: 'child' })}><Arrow />Now {s.names.child}'s turn</button>)}
-          {phase === 'done' && <div className="scan-secondary"><button className="btn-cream small" onClick={retake}>Retake</button></div>}
+            ? <button className="btn-primary" onClick={() => go({ screen: 'sketches' })}><Arrow />{t("See today's sketches")}</button>
+            : <button className="btn-primary" onClick={() => go({ screen: 'scan', who: 'child' })}><Arrow />{t("Now {name}'s turn", { name: s.names.child })}</button>)}
+          {phase === 'done' && <div className="scan-secondary"><button className="btn-cream small" onClick={retake}>{t('Retake')}</button></div>}
 
           {(live || phase === 'error') && (
             <div className="scan-secondary">
-              <button className="btn-cream small" onClick={() => fileIn.current?.click()}>Use a photo</button>
-              {phase === 'error' && frameUrl.current && <a className="btn-cream small" href={frameUrl.current} download="dadis-map-scan.jpg">Save this photo</a>}
-              {live && <button className="btn-cream small" onClick={() => { const f = !flip; setFlip(f); hist.current = []; try { localStorage.setItem(flipKey(), f ? '1' : '0'); } catch { /* not remembered */ } }}>Flip</button>}
+              <button className="btn-cream small" onClick={() => fileIn.current?.click()}>{t('Use a photo')}</button>
+              {phase === 'error' && frameUrl.current && <a className="btn-cream small" href={frameUrl.current} download="dadis-map-scan.jpg">{t('Save this photo')}</a>}
+              {live && <button className="btn-cream small" onClick={() => { const f = !flip; setFlip(f); hist.current = []; try { localStorage.setItem(flipKey(), f ? '1' : '0'); } catch { /* not remembered */ } }}>{t('Flip')}</button>}
             </div>
           )}
         </div>
@@ -267,7 +274,7 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
 
 /** The door, outlined on the scan where it was found (box: in the analysis box, fit: where the scan sits in it). */
 function DoorTag({ door, found }: { door: { box: number[]; fit: number[] }; found: boolean }) {
-  const ref = useRef<HTMLDivElement>(null), [r, setR] = useState<number[] | null>(null);
+  const ref = useRef<HTMLDivElement>(null), [r, setR] = useState<number[] | null>(null), t = useT();
   useLayoutEffect(() => {
     const img = ref.current?.parentElement?.querySelector('img'); if (!img) return;
     const place = () => setR([img.offsetLeft, img.offsetTop, img.offsetWidth, img.offsetHeight]);
@@ -275,23 +282,23 @@ function DoorTag({ door, found }: { door: { box: number[]; fit: number[] }; foun
   }, []);
   const [fx, fy, fw, fh] = door.fit, [x0, y0, x1, y1] = door.box;
   const box = r && { left: r[0] + ((x0 - fx) / fw) * r[2], top: r[1] + ((y0 - fy) / fh) * r[3], width: ((x1 - x0) / fw) * r[2], height: ((y1 - y0) / fh) * r[3] };
-  return <div ref={ref}>{box && <div className="door-tag" style={box}><span>{found ? 'Door' : 'Door goes here'}</span></div>}</div>;
+  return <div ref={ref}>{box && <div className="door-tag" style={box}><span>{found ? t('Door') : t('Door goes here')}</span></div>}</div>;
 }
 
 function FixSheet({ d, onPick, close }: { d: Drawing; onPick: (g: Guess) => void; close: () => void }) {
   const opts: Guess[] = [...d.alternatives, ...QUICK_PICKS.map(guessFor)].filter((g, i, a) => g.kind !== d.kind && a.findIndex(x => x.kind === g.kind) === i).slice(0, 14);
-  const [typed, setTyped] = useState('');
+  const [typed, setTyped] = useState(''), t = useT();
   return (
     <div className="sheet-bg" onClick={close}>
       <div className="sheet" onClick={e => e.stopPropagation()}>
-        <h2>{d.source === 'local' && d.confidence < 0.5 ? `Is it ${d.label}?` : 'What did you draw?'}</h2>
-        <p>{d.source === 'local' && d.confidence < 0.5 ? 'Or tap the right one, and it will move the right way on the map.' : 'Tap the right one, and it will move the right way on the map.'}</p>
+        <h2>{d.source === 'local' && d.confidence < 0.5 ? t('Is it {label}?', { label: d.label }) : t('What did you draw?')}</h2>
+        <p>{d.source === 'local' && d.confidence < 0.5 ? t('Or tap the right one, and it will move the right way on the map.') : t('Tap the right one, and it will move the right way on the map.')}</p>
         <div className="chips">{opts.map(g => <button key={g.kind} onClick={() => onPick(g)}>{g.label.replace(/^(a|an|the) /, '')}</button>)}</div>
         <div className="row">
-          Something else: <input value={typed} onChange={e => setTyped(e.target.value)} placeholder="e.g. rabbit" />
-          <button className="btn-cream small" disabled={!typed.trim()} onClick={() => { const k = typed.trim().toLowerCase().split(/\s+/).pop()!; const g = guessFor(k); onPick({ ...g, label: typed.trim() }); }}>That's it</button>
+          {t('Something else:')} <input value={typed} onChange={e => setTyped(e.target.value)} placeholder="e.g. rabbit" />
+          <button className="btn-cream small" disabled={!typed.trim()} onClick={() => { const k = typed.trim().toLowerCase().split(/\s+/).pop()!; const g = guessFor(k); onPick({ ...g, label: typed.trim() }); }}>{t("That's it")}</button>
         </div>
-        <button className="btn-primary" style={{ height: 60, fontSize: 22, padding: '0 28px' }} onClick={close}>Keep "{d.label}"</button>
+        <button className="btn-primary" style={{ height: 60, fontSize: 22, padding: '0 28px' }} onClick={close}>{t('Keep “{label}”', { label: d.label })}</button>
       </div>
     </div>
   );

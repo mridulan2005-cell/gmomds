@@ -258,6 +258,8 @@ export class MapScene {
   /** the pin at the edge of the finished map: reaching it on foot unlocks the bridge */
   private pinPos: { x: number; z: number } | null = null; private pinFired = false;
   onPin: () => void = () => {};
+  /** words drawn into the scene, in the chosen language */
+  tr: (en: string, v?: Record<string, string | number>) => string = en => en;
   private joy = { x: 0, y: 0 }; private keys = new Set<string>(); private joyEl: HTMLDivElement; private lt = 0;
   private eye = new THREE.Vector3(); private look = new THREE.Vector3(); private dc = new THREE.PerspectiveCamera();
   private faceTex = new Map<string, THREE.Texture>();
@@ -397,6 +399,7 @@ export class MapScene {
   }
 
   private sprite(text: string, o: { size?: number; pill?: boolean; bg?: string; color?: string; k?: number } = {}) {
+    text = this.tr(text);
     const fs = o.size || 56, pad = o.pill ? fs * 0.7 : fs * 0.2, c = document.createElement('canvas'); let x = c.getContext('2d')!; const font = `800 ${fs}px Urbanist, Helvetica, sans-serif`; x.font = font;
     const tw = x.measureText(text).width; c.width = Math.ceil(tw + pad * 2); c.height = Math.ceil(fs * 1.7); x = c.getContext('2d')!; x.font = font;
     if (o.pill) { x.fillStyle = o.bg || '#FFF3D1'; x.beginPath(); if ((x as any).roundRect) (x as any).roundRect(0, 0, c.width, c.height, c.height / 2); else x.rect(0, 0, c.width, c.height); x.fill(); }
@@ -567,14 +570,14 @@ export class MapScene {
     const G = new THREE.Group(), alive = places.length > 0 && places.every(p => p.status === 'done');
     // a map of one place (the Welcome Party) is that place itself: it fills the whole map, not one corner of a land
     if (places.length === 1) {
-      const p = places[0], lbl = o.labels !== false && p.status === 'current' ? 'This week · ' + Math.max(0, (p.total || PAIRS) - p.pairs.length) + ' to go' : null;
+      const p = places[0], lbl = o.labels !== false && p.status === 'current' ? this.tr('This week · {n} to go', { n: Math.max(0, (p.total || PAIRS) - p.pairs.length) }) : null;
       const g = this.island(p, { label: lbl, q: true, pick: o.pick && p.status !== 'locked' ? { type: 'place', pi: 0 } : null, lockPick: { type: 'lock', mi: o.mi, pi: 0 }, lockK: 1.6, walk: !!o.pick, walkH: 100, S: 76 });
       g.scale.setScalar(2.6); G.add(g); G.userData.alive = false; return G;
     }
     // while the map is in progress the two of them stroll on this week's place (or a finished one), and across the whole land once it is finished
     const cur = places.findIndex(p => p.status === 'current'), walkI = o.pick && !alive ? (cur >= 0 ? cur : places.findIndex(p => p.status === 'done')) : -1;
     places.forEach((p, i) => {
-      const lbl = p.status === 'done' ? p.name : p.status === 'current' ? 'This week · ' + Math.max(0, (p.total || PAIRS) - p.pairs.length) + ' to go' : null;
+      const lbl = p.status === 'done' ? p.name : p.status === 'current' ? this.tr('This week · {n} to go', { n: Math.max(0, (p.total || PAIRS) - p.pairs.length) }) : null;
       const g = this.island(p, { label: o.labels !== false ? lbl : null, q: true, pick: o.pick && p.status !== 'locked' ? { type: 'place', pi: i } : null, lockPick: { type: 'lock', mi: o.mi, pi: i }, lockK: 1.6, walk: i === walkI, walkH: 80 });
       g.position.set(MPOS[i][0], 0, MPOS[i][1]); G.add(g);
     });

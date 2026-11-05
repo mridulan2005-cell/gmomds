@@ -4,6 +4,8 @@ import { Chevron, Dock, DrawingSvg, type Dest } from '../components';
 import { DADI, CHILD } from '../lib/content';
 import { scanUrl, useApp } from '../lib/store';
 import type { Drawing, Pair, Place } from '../lib/types';
+import { promptIn, useT } from '../lib/i18n';
+import { useSay } from '../lib/voice';
 
 // A place gets a title page, then day pages of up to three pairs; pages are padded so each place starts on a left page.
 type PageData =
@@ -25,14 +27,14 @@ function Snap({ d }: { d: Drawing }) {
 }
 
 function PageView({ p, side, num, anim, onClick }: { p: PageData; side: 'l' | 'r'; num: number; anim?: string; onClick: () => void }) {
-  const s = useApp();
+  const s = useApp(), t = useT();
   return (
     <div className={'sb-page ' + side} style={{ animation: anim }} onClick={onClick}>
       <div className="sb-gutter" />
       {p.kind === 'title' && (
         <div className="sb-title">
-          <div className="sb-when">{p.month} · {p.part}</div>
-          <div className="sb-place">{p.place.status === 'done' ? p.place.name : '???'}</div>
+          <div className="sb-when">{t(p.month)} · {p.part}</div>
+          <div className="sb-place">{p.place.status === 'done' ? t(p.place.name) : '???'}</div>
           <svg width="230" height="18" viewBox="0 0 230 18" fill="none"><path d="M4 12 C40 2 70 16 110 8 S190 4 226 10" stroke="#F26A2E" strokeWidth="5" strokeLinecap="round" /></svg>
           <div className="sb-faces">
             {([['dadi', DADI, -4, -3], ['child', CHILD, 3, 4]] as const).map(([who, c, r, tr]) => (
@@ -48,15 +50,15 @@ function PageView({ p, side, num, anim, onClick }: { p: PageData; side: 'l' | 'r
       {p.kind === 'days' && (
         <>
           <div className="sb-head">
-            <div className="sb-days">{p.rows.length > 1 ? `Days ${p.first}–${p.first + p.rows.length - 1}` : `Day ${p.first}`}</div>
-            <div className="sb-head-r">{p.head}</div>
+            <div className="sb-days">{p.rows.length > 1 ? t('Days {a}–{b}', { a: p.first, b: p.first + p.rows.length - 1 }) : t('Day {n}', { n: p.first })}</div>
+            <div className="sb-head-r">{p.head.split(' · ').map(x => t(x)).join(' · ')}</div>
           </div>
           <div className="sb-rows">
             {p.rows.map(({ pair, day }) => (
               <div key={pair.promptId} className="sb-row">
                 <div className="sb-prompt">
-                  <div className="sb-day">Day {day}{pair.together ? ' · Together day' : ''}</div>
-                  <div className="sb-text"><span>{pair.prompt}</span></div>
+                  <div className="sb-day">{t('Day {n}', { n: day })}{pair.together ? t(' · Together day') : ''}</div>
+                  <div className="sb-text"><span>{promptIn(t.lang, { text: pair.prompt, hi: pair.hi })}</span></div>
                 </div>
                 <div className="sb-pair">
                   {pair.single ? (
@@ -88,21 +90,22 @@ function PageView({ p, side, num, anim, onClick }: { p: PageData; side: 'l' | 'r
 }
 
 export function Scrapbook({ dest, placeId }: { go: Go; dest: (d: Dest) => void; placeId?: string }) {
-  const s = useApp();
+  const s = useApp(), t = useT();
+  useSay(t('This is your scrapbook. Swipe, or tap the arrows, to turn the pages.'), t.lang);
   // oldest first
   const spreads = useMemo(() => {
     const out: Spread[] = [];
     [...s.months].reverse().forEach(m => m.places.forEach((p, pi) => {
       if (!p.pairs.length) return;
       const head = m.name + ' · ' + (p.status === 'done' ? p.name : '???');
-      const pages: PageData[] = [{ kind: 'title', place: p, month: m.name, part: m.places.length > 1 ? `Part ${pi + 1} of ${m.places.length}` : 'First map' }];
+      const pages: PageData[] = [{ kind: 'title', place: p, month: m.name, part: m.places.length > 1 ? t('Part {n} of {total}', { n: pi + 1, total: m.places.length }) : t('First map') }];
       for (let k = 0; k < p.pairs.length; k += 3) pages.push({ kind: 'days', head, first: k + 1, rows: p.pairs.slice(k, k + 3).map((pair, i) => ({ pair, day: k + i + 1 })) });
       if (pages.length % 2) pages.push({ kind: 'blank' });
       for (let k = 0; k < pages.length; k += 2) out.push({ placeId: p.id, l: pages[k], r: pages[k + 1] });
     }));
     if (!out.length) out.push({ placeId: '', l: { kind: 'blank' }, r: { kind: 'blank' } });
     return out;
-  }, [s.months]);
+  }, [s.months, t.lang]);
   const last = spreads.length - 1;
 
   const [page, setPage] = useState(() => {
@@ -170,8 +173,8 @@ export function Scrapbook({ dest, placeId }: { go: Go; dest: (d: Dest) => void; 
           </div>
         )}
       </div>
-      <button className="btn-round page-nav" style={{ left: 14, opacity: cur > 0 ? 1 : 0.35 }} aria-label="Previous page" onClick={prev}><Chevron dir="l" /></button>
-      <button className="btn-round page-nav" style={{ right: 14, opacity: cur < last ? 1 : 0.35 }} aria-label="Next page" onClick={next}><Chevron dir="r" /></button>
+      <button className="btn-round page-nav" style={{ left: 14, opacity: cur > 0 ? 1 : 0.35 }} aria-label={t('Previous page')} onClick={prev}><Chevron dir="l" /></button>
+      <button className="btn-round page-nav" style={{ right: 14, opacity: cur < last ? 1 : 0.35 }} aria-label={t('Next page')} onClick={next}><Chevron dir="r" /></button>
       <Dock items={['home', 'map']} go={dest} />
     </div>
   );

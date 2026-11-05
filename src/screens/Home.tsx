@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { Go } from '../App';
 import { Arrow, Cloud, Dock, SkyBirds, Sun, type Dest } from '../components';
+import { LANG_OPTIONS, promptIn, useT } from '../lib/i18n';
+import { useSay } from '../lib/voice';
 import { GearIcon } from '../icons';
 import { addSamplePairs, awaitingPin, currentPlace, ensurePrompt, nextPromptAt, placeTotal, promptDone, readyToReveal, resetAll, update, useApp } from '../lib/store';
 
@@ -8,7 +10,7 @@ const DAY = 86_400_000, p2 = (v: number) => String(Math.floor(v)).padStart(2, '0
 
 export function Home({ go, dest }: { go: Go; dest: (d: Dest) => void }) {
   const s = useApp(), done = promptDone(s), ready = readyToReveal(s), place = currentPlace(s);
-  const [settings, setSettings] = useState(false);
+  const [settings, setSettings] = useState(false), t = useT();
   useEffect(() => { void ensurePrompt(); }, []);
   const resumeChild = !!(s.scanning && s.prompt && s.scanning.promptId === s.prompt.id && s.scanning.dadi && s.drawings[s.scanning.dadi]);
   // on a together day they draw on one sheet, and the sky turns warm
@@ -21,6 +23,16 @@ export function Home({ go, dest }: { go: Go; dest: (d: Dest) => void }) {
   const rem = Math.max(0, nextPromptAt(s) - now);
   useEffect(() => { if (waiting && rem === 0) void ensurePrompt(); }, [waiting, rem === 0]);
   const n = place ? place.pairs.length : 0, total = place ? placeTotal(place) : 0;
+  const promptText = promptIn(t.lang, s.prompt);
+  // the voice: what today's screen is, and what to do
+  const pin = awaitingPin(s);
+  useSay(pin ? t('One more to go! Go to the map, press Play, and walk to the red pin to unlock it.')
+    : ready ? t('Your place is ready! Tap See what we made.')
+    : done ? t('All done for today! Come back tomorrow for the next doodle.')
+    : s.prompt ? (resumeChild ? t("{name}, it's your turn. Tap {name}'s turn to scan your drawing.", { name: s.names.child })
+      : together ? t("Today you draw together, on one sheet: {prompt}. When you're done, tap We're done.", { prompt: promptText })
+      : t("Today's doodle: {prompt}. Draw it on paper, each on your own sheet. When you're both done, tap We're done.", { prompt: promptText }))
+    : null, t.lang);
 
   return (
     <div className={'screen home' + (together ? ' together' : '')}>
@@ -29,34 +41,34 @@ export function Home({ go, dest }: { go: Go; dest: (d: Dest) => void }) {
       <Cloud style={{ left: -30, top: 70, animation: 'drift 40s ease-in-out infinite alternate' }} />
       <Cloud w={230} style={{ right: 230, top: '38%', animation: 'drift 55s ease-in-out infinite alternate-reverse' }} />
       <Cloud w={150} style={{ left: 110, bottom: 200, animation: 'drift 48s ease-in-out infinite alternate' }} />
-      <button className="gear" aria-label="Settings" onClick={() => setSettings(true)}>
+      <button className="gear" aria-label={t('Settings')} onClick={() => setSettings(true)}>
         <GearIcon size={44} />
       </button>
       <div className="home-center">
-        {awaitingPin(s) ? (
+        {pin ? (
           <>
             {/* the Dream House has come alive: its last prompt waits at the pin on the map */}
             <img className="home-pin" src={import.meta.env.BASE_URL + 'dream/pin_red.png'} alt="" aria-hidden="true" draggable={false} />
-            <div className="pill">One more to go</div>
-            <div className="home-done wait">Walk to the pin on the map to unlock it</div>
-            <button className="btn-primary big" onClick={() => go({ screen: 'interior', mi: 0 })}><Arrow w={46} h={30} />Go to the map</button>
+            <div className="pill">{t('One more to go')}</div>
+            <div className="home-done wait">{t('Walk to the pin on the map to unlock it')}</div>
+            <button className="btn-primary big" onClick={() => go({ screen: 'interior', mi: 0 })}><Arrow w={46} h={30} />{t('Go to the map')}</button>
           </>
         ) : ready ? (
           <>
-            <div className="pill">{total === 1 ? 'All drawn!' : `${total} pairs!`}</div>
-            <div className="home-done">Our place is ready.</div>
-            <button className="btn-primary big" onClick={() => go({ screen: 'reveal' })}><Arrow w={56} h={37} />See what we made</button>
+            <div className="pill">{total === 1 ? t('All drawn!') : t('{n} pairs!', { n: total })}</div>
+            <div className="home-done">{t('Our place is ready.')}</div>
+            <button className="btn-primary big" onClick={() => go({ screen: 'reveal' })}><Arrow w={56} h={37} />{t('See what we made')}</button>
           </>
         ) : done ? (
           <>
-            <div className="pill">All done for today</div>
-            <div className="home-done wait">Next prompt in</div>
+            <div className="pill">{t('All done for today')}</div>
+            <div className="home-done wait">{t('Next prompt in')}</div>
             <div className="countdown">
               <div className="cd-clock" aria-hidden="true">
                 <div className="cd-bell" /><div className="cd-hand" />
                 <div className="cd-face">
                   <svg width="150" height="150" viewBox="-10 -10 20 20"><path d="M0 -10 Q1.6 -1.6 10 0 Q1.6 1.6 0 10 Q-1.6 1.6 -10 0 Q-1.6 -1.6 0 -10Z" fill="#FFC93C" /></svg>
-                  <div className="cd-day"><span>Day</span><b>{n + 1}</b></div>
+                  <div className="cd-day"><span>{t('Day')}</span><b>{n + 1}</b></div>
                 </div>
               </div>
               <div className="cd-bar">
@@ -64,19 +76,19 @@ export function Home({ go, dest }: { go: Go; dest: (d: Dest) => void }) {
                 <div className="cd-track"><div style={{ width: Math.min(100, 100 - (rem / DAY) * 100).toFixed(2) + '%' }} /></div>
               </div>
             </div>
-            {place && <div className="home-sub">??? · prompt {n + 1} of {total}</div>}
+            {place && <div className="home-sub">{t('??? · prompt {n} of {total}', { n: n + 1, total })}</div>}
           </>
         ) : s.prompt ? (
           <>
             {together ? <TogetherArt /> : <SoloArt />}
-            <div className="prompt">{s.prompt.text}</div>
-            {s.prompt.rule && <div className="prompt-rule"><i aria-hidden="true" />{s.prompt.rule}</div>}
+            <div className="prompt">{promptText}</div>
+            {s.prompt.rule && <div className="prompt-rule"><i aria-hidden="true" />{t(s.prompt.rule)}</div>}
             <button className="btn-primary big" style={{ marginTop: 14 }} onClick={() => go({ screen: 'scan', who: resumeChild ? 'child' : 'dadi' })}>
-              <Arrow w={46} h={30} />{resumeChild ? `${s.names.child}'s turn` : "We're done!"}
+              <Arrow w={46} h={30} />{resumeChild ? t("{name}'s turn", { name: s.names.child }) : t("We're done!")}
             </button>
           </>
         ) : (
-          <div className="prompt" style={{ fontSize: 48, opacity: 0.6 }}>{place ? 'Finding today’s prompt…' : ''}</div>
+          <div className="prompt" style={{ fontSize: 48, opacity: 0.6 }}>{place ? t('Finding today’s prompt…') : ''}</div>
         )}
       </div>
       <Dock items={['map', 'book']} go={dest} />
@@ -97,6 +109,9 @@ function Settings({ close }: { close: () => void }) {
       <div className="sheet" onClick={e => e.stopPropagation()}>
         <h2>Settings</h2>
         <p>{ai}</p>
+        <div className="row">Language / भाषा
+          {LANG_OPTIONS.map(([native, en]) => <button key={en} className={'btn-cream small' + ((s.lang || 'English') === en ? ' cta' : '')} onClick={() => update(st => { st.lang = en; })}>{native}</button>)}
+        </div>
         <div className="row">Dadi <input value={s.names.dadi} maxLength={14} onChange={e => update(st => { st.names.dadi = e.target.value; })} />
           Grandchild <input value={s.names.child} maxLength={14} onChange={e => update(st => { st.names.child = e.target.value; })} /></div>
         <div className="row">

@@ -97,7 +97,11 @@ export async function recognise(body) {
   }
 }
 
-const PromptOut = z.object({ text: z.string().describe('One short open-ended drawing prompt, starting with "Draw".') });
+const PromptOut = z.object({
+  text: z.string().describe('One short open-ended drawing prompt, starting with "Draw".'),
+  // shown and read aloud when they chose Hindi
+  hi: z.string().describe('The same prompt in simple, warm everyday Hindi, in Devanagari script (e.g. "कुछ ऐसा बनाइए जो उड़ता हो").'),
+});
 
 /**
  * @param {{ theme?: string, loves?: {dadi?: string[], child?: string[]}, recent?: string[], childName?: string }} body
@@ -122,7 +126,8 @@ Recent prompts (do not repeat): ${(body.recent || []).slice(-10).join(' | ') || 
     });
     const text = res.parsed_output?.text?.trim();
     if (!text) return { status: 502, json: { error: 'no_answer' } };
-    return { status: 200, json: { text: text.replace(/[.!]+$/, '') } };
+    const hi = res.parsed_output?.hi?.trim();
+    return { status: 200, json: { text: text.replace(/[.!]+$/, ''), ...(hi ? { hi: hi.replace(/[.!।]+$/, '') } : {}) } };
   } catch (e) {
     return errorReply(e);
   }

@@ -1,6 +1,8 @@
 // "How it works": three cards shown once, right after onboarding, before the first prompt.
 import type { Go } from '../App';
 import { Arrow } from '../components';
+import { useT } from '../lib/i18n';
+import { useSay } from '../lib/voice';
 
 // the card pictures, as drawn in the prototype (static, trusted markup)
 const ART = [
@@ -16,21 +18,23 @@ const CARDS = [
 ];
 
 export function HowItWorks({ go }: { go: Go }) {
+  const t = useT();
+  useSay(t("Here's how it works. Every day you both get the same doodle, and draw it side by side. Scan your drawings and watch them come alive on your map. Finish maps, then walk around inside them. Tap Let's draw to begin."), t.lang);
   return (
     <div className="screen how">
-      <h1 className="how-title">How it works</h1>
+      <h1 className="how-title">{t('How it works')}</h1>
       <div className="how-cards">
         {CARDS.map((c, i) => (
           <div key={c.n} className="how-card" style={{ rotate: c.tilt + 'deg', animationDelay: i * 120 + 'ms' }}>
             <div className="how-body">
               <div className="how-art" aria-hidden="true" dangerouslySetInnerHTML={{ __html: ART[i] }} />
-              <div className="how-text"><div className="t">{c.title}</div><div className="d">{c.text}</div></div>
+              <div className="how-text"><div className="t">{t(c.title)}</div><div className="d">{t(c.text)}</div></div>
             </div>
             <div className="how-num" aria-hidden="true"><span style={{ background: c.color }}>{c.n}</span><i style={{ background: c.color }} /></div>
           </div>
         ))}
       </div>
-      <button className="btn-primary how-go" onClick={() => go({ screen: 'home' })}><Arrow />Let's draw</button>
+      <button className="btn-primary how-go" onClick={() => go({ screen: 'home' })}><Arrow />{t("Let's draw")}</button>
     </div>
   );
 }

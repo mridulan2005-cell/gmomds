@@ -31,7 +31,7 @@ export interface Drawing {
 }
 
 /** `single`: one shared drawing (the dream house), so dadi and child are the same drawing */
-export interface Pair { promptId: string; prompt: string; dadi: string; child: string; slot: number; together?: boolean; single?: boolean; title?: string }
+export interface Pair { promptId: string; prompt: string; /** the prompt in Hindi, when it was made with one */ hi?: string; dadi: string; child: string; slot: number; together?: boolean; single?: boolean; title?: string }
 export type PlaceStatus = 'locked' | 'current' | 'done';
 export interface Place {
   id: string; index: number; name: string; theme: string; shape: 'A' | 'B' | 'C' | 'D'; color: string; status: PlaceStatus; pairs: Pair[];
@@ -43,7 +43,7 @@ export interface Place {
   room?: 'lr' | 'kitchen' | 'house' | 'park' | 'bridge';
 }
 export interface Month { id: string; name: string; places: Place[]; /** the Dream House: its places are rooms of one house */ dream?: boolean }
-export interface Prompt { id: string; text: string; date: string; placeId: string; together?: boolean; title?: string; rule?: string; single?: boolean }
+export interface Prompt { id: string; text: string; /** the same prompt in Hindi (made by the server along with it) */ hi?: string; date: string; placeId: string; together?: boolean; title?: string; rule?: string; single?: boolean }
 
 export interface AppState {
   version: 1;
@@ -63,6 +63,8 @@ export interface AppState {
   /** when today's pair was finished; the next prompt arrives 24 hours later */
   doneAt?: number;
   examples?: boolean; // the finished example maps were added
+  /** the language they are comfortable in (English name, e.g. 'Hindi'); chosen first in onboarding */
+  lang?: string;
   /** the Dream House's pin was reached while walking around: its last prompt (the bridge) is unlocked */
   pinReached?: boolean;
 }
