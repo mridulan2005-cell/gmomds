@@ -462,7 +462,8 @@ export function detectSheet(img: Img): Sheet {
   if (t) quad = t.page;
   else if (poly) { const sx = img.width / w, sy = img.height / h; quad = orderQuad(poly.map(([x, y]) => [x * sx, y * sy] as Pt)); }
   // hands: skin that reaches in over the sheet from outside it
-  const inner: Pt[] = poly
+  // (on the drawing sheet only a hand inside the frame is in the way: fingers holding its margin are fine)
+  const inner: Pt[] = t ? t.frame.map(([x, y]) => [(x * w) / img.width, (y * h) / img.height] as Pt) : poly
     ? (() => { const cx = poly.reduce((a, p) => a + p[0], 0) / 4, cy = poly.reduce((a, p) => a + p[1], 0) / 4; return poly.map(([x, y]) => [cx + (x - cx) * 0.88, cy + (y - cy) * 0.88] as Pt); })()
     : [[w * 0.12, h * 0.12], [w * 0.88, h * 0.12], [w * 0.88, h * 0.88], [w * 0.12, h * 0.88]];
   const sk = label(c.skin, w, h), edge = touchesBorder(sk.lab, w, h), inside = new Float64Array(sk.sizes.length), outsideN = new Float64Array(sk.sizes.length);
@@ -663,6 +664,10 @@ export function findTemplate(img: Img, maxSide = 800): Template | null {
     }
   }
   if (!best) return null;
+  // turn the sheet upright: its long side runs up the page, and of the two ways up, the one nearest the camera's
+  // own up (a sheet held up to the camera, or turned sideways on the tray, reads the right way round)
+  const dd = (a: M, b: M) => Math.hypot(a.x - b.x, a.y - b.y), turns = [0, 1, 2, 3].map(r => [0, 1, 2, 3].map(i => best![(i + r) % 4]));
+  best = turns.filter(q => dd(q[0], q[1]) + dd(q[3], q[2]) <= dd(q[0], q[3]) + dd(q[1], q[2])).sort((p, q) => p[0].y + p[1].y - q[0].y - q[1].y)[0];
   let centres = best.map(m => [m.x * k, m.y * k] as Pt) as Quad;
   if (found === 3) {
     // three squares and the paper's corner beyond the hidden one fix the sheet, perspective and all (the plain
@@ -695,7 +700,8 @@ export function findTemplate(img: Img, maxSide = 800): Template | null {
  */
 function handsAway(img: Img): Uint8Array {
   const c = classify(resize(img, 320)), { w, h } = c, W = img.width, H = img.height;
-  const sm = c.skin.map((v, i) => (v && c.sat[i] < 0.7 ? 1 : 0)) as Uint8Array, sl = label(sm, w, h), edge = touchesBorder(sl.lab, w, h);
+  // (warm paper in shadow passes the skin rules too: once the light's colour is removed, skin is clearly tinted)
+  const sm = c.skin.map((v, i) => (v && c.sat[i] > 0.18 && c.sat[i] < 0.7 ? 1 : 0)) as Uint8Array, sl = label(sm, w, h), edge = touchesBorder(sl.lab, w, h);
   const hand = sm.map((v, i) => (v && edge.has(sl.lab[i]) && sl.sizes[sl.lab[i]] >= w * h * 0.015 ? 1 : 0)) as Uint8Array, gone = dilate(hand, w, h, 2);
   const area = new Uint8Array(W * H);
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) area[y * W + x] = gone[Math.min(h - 1, Math.floor((y * h) / H)) * w + Math.min(w - 1, Math.floor((x * w) / W))] ? 0 : 1;

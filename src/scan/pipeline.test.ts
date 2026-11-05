@@ -350,7 +350,11 @@ describe('drawing sheet', () => {
   });
   it('turned sideways', () => {
     const { img, centres } = shot([[120, 600], [100, 160], [760, 130], [800, 620]], bird), t = findTemplate(img);
-    expect(t).not.toBeNull(); expect(Math.hypot(t!.centres[0][0] - centres[1][0], t!.centres[0][1] - centres[1][1])).toBeLessThan(4);
+    expect(t).not.toBeNull();
+    t!.centres.forEach(p => expect(Math.min(...centres.map(c => Math.hypot(p[0] - c[0], p[1] - c[1])))).toBeLessThan(4));
+    // turned to portrait: the first side (top) is a short side
+    const d = (a: Pt, b: Pt) => Math.hypot(a[0] - b[0], a[1] - b[1]), c = t!.centres;
+    expect(d(c[0], c[1])).toBeLessThan(d(c[1], c[2]));
     expect(processScan(img)).toMatchObject({ ok: true });
   });
   it('a hand over one corner: three squares are enough', () => {
@@ -360,6 +364,17 @@ describe('drawing sheet', () => {
     expect(t).not.toBeNull(); expect(t!.markers).toBe(3);
     expect(Math.hypot(t!.centres[2][0] - centres[2][0], t!.centres[2][1] - centres[2][1])).toBeLessThan(16);
     expect(processScan(img)).toMatchObject({ ok: true });
+  });
+  it('a real photo: the sheet held up to the camera, a thumb on its margin', () => {
+    const img = photoFile('gift-sheet-held.png'), t = findTemplate(img);
+    expect(t).not.toBeNull(); expect(t!.markers).toBe(4);
+    // upright: the top-left square is the one at the top left of the held sheet
+    ([[383, 33], [762, 103], [643, 676], [280, 594]] as Pt[]).forEach((p, i) => expect(Math.hypot(t!.centres[i][0] - p[0], t!.centres[i][1] - p[1])).toBeLessThan(8));
+    expect(detectSheet(img).hands).toBe(false); // fingers on the margin, not over the frame
+    const r = processScan(img);
+    expect(r).toMatchObject({ ok: true });
+    // the gift and its bow, not the frame (the frame is ~390 px across here)
+    expect(r.crop!.width).toBeLessThan(370); expect(r.crop!.height).toBeGreaterThan(r.crop!.width);
   });
   it('plain paper is not mistaken for the drawing sheet', () => {
     expect(findTemplate(photo().img)).toBeNull();
