@@ -33,14 +33,29 @@ export function setMuted(m: boolean) {
 
 // ---- the natural voice from the server ----
 /** null: not known yet; the server says whether it has a voice */
-let cloud: boolean | null = null;
+let cloud: boolean | null = null, voiceTag = '';
 const cloudReady = typeof fetch === 'undefined' ? Promise.resolve(false)
-  : fetch('/api/health').then(r => r.json()).then(j => (cloud = !!j?.tts)).catch(() => (cloud = false));
+  : fetch('/api/health').then(r => r.json()).then(j => { voiceTag = String(j?.voice || ''); return (cloud = !!j?.tts); }).catch(() => (cloud = false));
+// each line is kept on the tablet once it has been made, so it is never paid for twice (a new voice starts afresh)
+const BOX = 'dadis-map-voice-v1';
+async function hash(s: string) {
+  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  return Array.from(new Uint8Array(d), b => b.toString(16).padStart(2, '0')).join('');
+}
+async function fetchClip(text: string, lang: Lang, mood: Mood): Promise<Blob | null> {
+  let box: Cache | null = null, key = '';
+  try { box = await caches.open(BOX); key = '/voice/' + (await hash([voiceTag, lang, mood, text].join('|'))) + '.mp3'; const hit = await box.match(key); if (hit) return await hit.blob(); } catch { box = null; }
+  const r = await fetch('/api/tts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, lang, mood }) });
+  if (!r.ok) return null;
+  const b = await r.blob();
+  if (box && b.size) void box.put(key, new Response(b, { headers: { 'content-type': 'audio/mpeg' } })).catch(() => {});
+  return b;
+}
 const clips = new Map<string, Promise<string | null>>();
 function clip(text: string, lang: Lang, mood: Mood): Promise<string | null> {
   const k = lang + '|' + mood + '|' + text;
-  if (!clips.has(k)) clips.set(k, fetch('/api/tts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, lang, mood }) })
-    .then(r => (r.ok ? r.blob() : null)).then(b => (b && b.size ? URL.createObjectURL(b) : null))
+  if (!clips.has(k)) clips.set(k, fetchClip(text, lang, mood)
+    .then(b => (b && b.size ? URL.createObjectURL(b) : null))
     .catch(() => null)
     .then(u => { if (!u) clips.delete(k); return u; }));
   return clips.get(k)!;

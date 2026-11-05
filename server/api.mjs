@@ -143,9 +143,21 @@ function errorReply(e) {
   return { status: 500, json: { error: 'server_error' } };
 }
 
-// ---- the voice: a natural neural voice (Azure Speech), warm and lively ----
-// AZURE_SPEECH_KEY + AZURE_SPEECH_REGION turn it on; without them the tablet uses its own voices.
-const hasTts = () => !!(process.env.AZURE_SPEECH_KEY && process.env.AZURE_SPEECH_REGION);
+// ---- the voice: a natural, human-sounding voice, warm and lively ----
+// ELEVENLABS_API_KEY (best, most human) or AZURE_SPEECH_KEY + AZURE_SPEECH_REGION turn it on;
+// without either the tablet uses its own voices.
+const hasEleven = () => !!process.env.ELEVENLABS_API_KEY;
+const hasAzure = () => !!(process.env.AZURE_SPEECH_KEY && process.env.AZURE_SPEECH_REGION);
+const hasTts = () => hasEleven() || hasAzure();
+// ElevenLabs: pick an Indian woman's voice in their Voice Library, add it to "My Voices", and put its Voice ID here
+// (one for English, optionally another for Hindi; the multilingual models speak both)
+const EL = {
+  en: () => process.env.ELEVENLABS_VOICE_ID || 'EXAVITQu4vr4xnSDxMaL',
+  hi: () => process.env.ELEVENLABS_VOICE_ID_HI || process.env.ELEVENLABS_VOICE_ID || 'EXAVITQu4vr4xnSDxMaL',
+  model: () => process.env.ELEVENLABS_MODEL || 'eleven_v3',
+};
+/** which voice the tablet's saved clips belong to (a new voice means new clips) */
+const voiceTag = () => (hasEleven() ? ['el', EL.model(), EL.en(), EL.hi()].join(':') : hasAzure() ? 'az:' + Object.values(VOICES).join(':') : '');
 const VOICES = {
   en: process.env.DADI_VOICE_EN || 'en-IN-NeerjaNeural',
   hi: process.env.DADI_VOICE_HI || 'hi-IN-SwaraNeural',
@@ -168,11 +180,50 @@ export function ssml(text, lang, mood) {
   const inner = /Neerja/i.test(voice) ? `<mstts:express-as style="cheerful" styledegree="${hype ? 2 : 1.2}">${body}</mstts:express-as>` : body;
   return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="${xl}"><voice name="${voice}">${inner}</voice></speak>`;
 }
-/** POST /api/tts {text, lang} → audio/mpeg */
+/** ElevenLabs v3 reads stage directions: [excited] on the happy sentences, [warmly] on the rest. */
+export function elevenText(text, mood) {
+  const parts = (text.match(/[^.!?।]+[.!?।]*/g) || [text]).map(p => p.trim()).filter(Boolean);
+  let prev = '';
+  return parts.map((s, i) => {
+    const joy = mood === 'excited' && (/!$/.test(s) || i === 0);
+    const tag = joy ? '[excited]' : /\?$/.test(s) ? '[curious]' : i === 0 ? '[warmly]' : prev === '[excited]' ? '[cheerfully]' : '';
+    const show = tag && tag !== prev; // the same feeling carries on without saying it again
+    prev = tag || prev;
+    return (show ? tag + ' ' : '') + s;
+  }).join(' ');
+}
+async function eleven(text, lang, mood) {
+  const voice = lang === 'hi' ? EL.hi() : EL.en(), hype = mood === 'excited';
+  const call = (model, input, settings) => fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voice}?output_format=mp3_44100_128`, {
+    method: 'POST',
+    headers: { 'xi-api-key': process.env.ELEVENLABS_API_KEY, 'content-type': 'application/json', accept: 'audio/mpeg' },
+    body: JSON.stringify({ text: input, model_id: model, voice_settings: settings }),
+  });
+  const model = EL.model();
+  let r = model === 'eleven_v3'
+    // v3: stability 0.5 is its "natural" setting; the tags carry the feeling
+    ? await call(model, elevenText(text, mood), { stability: 0.5, similarity_boost: 0.8, use_speaker_boost: true })
+    : await call(model, text, { stability: hype ? 0.3 : 0.45, similarity_boost: 0.8, style: hype ? 0.65 : 0.35, use_speaker_boost: true });
+  // v3 not on this account: the multilingual v2 model, made more expressive when excited
+  if (!r.ok && model === 'eleven_v3' && r.status >= 400 && r.status < 500 && r.status !== 401) {
+    console.error('[dadi tts] eleven_v3', r.status, await r.text().catch(() => ''));
+    r = await call('eleven_multilingual_v2', text, { stability: hype ? 0.3 : 0.45, similarity_boost: 0.8, style: hype ? 0.65 : 0.35, use_speaker_boost: true });
+  }
+  return r;
+}
+/** POST /api/tts {text, lang, mood} → audio/mpeg */
 export async function tts(body) {
   if (!hasTts()) return { status: 503, json: { error: 'no_tts' } };
   const text = String(body?.text || '').slice(0, 600).trim(), lang = body?.lang === 'hi' ? 'hi' : 'en', mood = body?.mood === 'excited' ? 'excited' : 'warm';
   if (!text) return { status: 400, json: { error: 'no_text' } };
+  if (hasEleven()) {
+    try {
+      const r = await eleven(text, lang, mood);
+      if (r.ok) return { status: 200, audio: Buffer.from(await r.arrayBuffer()) };
+      console.error('[dadi tts] elevenlabs', r.status, await r.text().catch(() => ''));
+    } catch (e) { console.error('[dadi tts] elevenlabs', e); }
+    if (!hasAzure()) return { status: 502, json: { error: 'tts_failed' } };
+  }
   try {
     const r = await fetch(`https://${process.env.AZURE_SPEECH_REGION}.tts.speech.microsoft.com/cognitiveservices/v1`, {
       method: 'POST',
@@ -190,7 +241,7 @@ export function apiMiddleware() {
     const url = (req.url || '').split('?')[0];
     if (!url.startsWith('/api/')) return next();
     const send = (status, json) => { res.statusCode = status; res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(json)); };
-    if (url === '/api/health') return send(200, { ai: hasCredentials(), model: MODEL, tts: hasTts() });
+    if (url === '/api/health') return send(200, { ai: hasCredentials(), model: MODEL, tts: hasTts(), voice: voiceTag() });
     if (req.method !== 'POST') return send(405, { error: 'method' });
     let raw = '';
     for await (const chunk of req) { raw += chunk; if (raw.length > 12e6) return send(413, { error: 'too_big' }); }
