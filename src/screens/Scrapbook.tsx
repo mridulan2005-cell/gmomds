@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Go } from '../App';
 import { Chevron, Dock, DrawingSvg, type Dest } from '../components';
-import { DADI, CHILD, PAIRS } from '../lib/content';
+import { DADI, CHILD } from '../lib/content';
 import { scanUrl, useApp } from '../lib/store';
 import type { Drawing, Pair, Place } from '../lib/types';
 
 // A place gets a title page, then day pages of up to three pairs; pages are padded so each place starts on a left page.
 type PageData =
-  | { kind: 'title'; place: Place; month: string; week: number }
+  | { kind: 'title'; place: Place; month: string; part: string }
   | { kind: 'days'; head: string; first: number; rows: { pair: Pair; day: number }[] }
   | { kind: 'blank' };
 interface Spread { placeId: string; l: PageData; r: PageData }
@@ -31,8 +31,8 @@ function PageView({ p, side, num, anim, onClick }: { p: PageData; side: 'l' | 'r
       <div className="sb-gutter" />
       {p.kind === 'title' && (
         <div className="sb-title">
-          <div className="sb-when">{p.month} · Week {p.week}</div>
-          <div className="sb-place">{p.place.status === 'done' ? p.place.name : 'A surprise place'}</div>
+          <div className="sb-when">{p.month} · {p.part}</div>
+          <div className="sb-place">{p.place.status === 'done' ? p.place.name : '???'}</div>
           <svg width="230" height="18" viewBox="0 0 230 18" fill="none"><path d="M4 12 C40 2 70 16 110 8 S190 4 226 10" stroke="#F26A2E" strokeWidth="5" strokeLinecap="round" /></svg>
           <div className="sb-faces">
             {([['dadi', DADI, -4, -3], ['child', CHILD, 3, 4]] as const).map(([who, c, r, tr]) => (
@@ -43,7 +43,6 @@ function PageView({ p, side, num, anim, onClick }: { p: PageData; side: 'l' | 'r
               </div>
             ))}
           </div>
-          {p.place.status !== 'done' && <div className="sb-mystery">Day {PAIRS} tells us where we are.</div>}
         </div>
       )}
       {p.kind === 'days' && (
@@ -56,11 +55,8 @@ function PageView({ p, side, num, anim, onClick }: { p: PageData; side: 'l' | 'r
             {p.rows.map(({ pair, day }) => (
               <div key={pair.promptId} className="sb-row">
                 <div className="sb-prompt">
-                  <img src="/paper-note.png" alt="" />
-                  <div className="sb-note">
-                    <div className="sb-day">Day {day}</div>
-                    <div className="sb-text">{pair.prompt}</div>
-                  </div>
+                  <div className="sb-day">Day {day}{pair.together ? ' · Together day' : ''}</div>
+                  <div className="sb-text"><span>{pair.prompt}</span></div>
                 </div>
                 <div className="sb-pair">
                   {([['dadi', DADI, -4, -3], ['child', CHILD, 3, 4]] as const).map(([who, c, r, tr]) => {
@@ -91,8 +87,8 @@ export function Scrapbook({ dest, placeId }: { go: Go; dest: (d: Dest) => void; 
     const out: Spread[] = [];
     [...s.months].reverse().forEach(m => m.places.forEach((p, pi) => {
       if (!p.pairs.length) return;
-      const head = m.name + ' · ' + (p.status === 'done' ? p.name : 'This week');
-      const pages: PageData[] = [{ kind: 'title', place: p, month: m.name, week: pi + 1 }];
+      const head = m.name + ' · ' + (p.status === 'done' ? p.name : '???');
+      const pages: PageData[] = [{ kind: 'title', place: p, month: m.name, part: m.places.length > 1 ? `Part ${pi + 1} of ${m.places.length}` : 'First map' }];
       for (let k = 0; k < p.pairs.length; k += 3) pages.push({ kind: 'days', head, first: k + 1, rows: p.pairs.slice(k, k + 3).map((pair, i) => ({ pair, day: k + i + 1 })) });
       if (pages.length % 2) pages.push({ kind: 'blank' });
       for (let k = 0; k < pages.length; k += 2) out.push({ placeId: p.id, l: pages[k], r: pages[k + 1] });

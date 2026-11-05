@@ -8,7 +8,7 @@ export function drawCfg(d: Drawing | undefined): DrawCfg | null {
 
 export function placeCfg(s: AppState, p: Place, status = p.status): PlaceCfg {
   return {
-    name: p.name, shape: p.shape, color: p.color, theme: p.theme, status,
+    name: p.name, shape: p.shape, color: p.color, theme: p.theme, status, total: p.total,
     pairs: p.pairs.map(pr => [drawCfg(s.drawings[pr.dadi]), drawCfg(s.drawings[pr.child])] as [DrawCfg, DrawCfg]),
   };
 }

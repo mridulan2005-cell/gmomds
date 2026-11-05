@@ -86,6 +86,37 @@ export const MAPS: MapKind[] = [
   { name: 'The Desert', places: ['The Oasis', 'The Cactus Garden', 'The Camel Fair', 'The Dunes'] },
 ];
 
+/** A prompt in a curated place; on a together day they draw on one sheet, side by side. */
+export interface PromptDef { text: string; together?: boolean }
+export interface PlaceDef { name: string; shape: 'A' | 'B' | 'C' | 'D'; color: string; theme: string; prompts?: PromptDef[] }
+export interface MapDef { name: string; places: PlaceDef[] }
+const pr = (text: string, together = false): PromptDef => (together ? { text, together } : { text });
+
+/**
+ * The first maps tell a little story, with their own prompts and their own number of places:
+ * a one-place Welcome Party, then a Dream House of rooms. After them come the kinds of places in MAPS (four places each).
+ */
+export const STORY_MAPS: MapDef[] = [
+  { name: 'Welcome Party', places: [
+    { name: 'Welcome Party', shape: 'D', color: '#F2A28A', theme: '', prompts: [pr('Draw something you’d bring to a party'), pr('Draw a song you’d dance to'), pr('Draw the party lights'), pr('Draw a gift for each other')] },
+  ] },
+  { name: 'Dream House', places: [
+    { name: 'Living Room', shape: 'C', color: '#F6C778', theme: '', prompts: [pr('Draw the other person’s perfect evening.'), pr('What can you see outside your dream window?'), pr('Draw something you’d keep forever.'), pr('Fill one room with things you both love.', true)] },
+    { name: 'Kitchen', shape: 'A', color: '#F2A28A', theme: '', prompts: [pr('Draw a food that takes you back to a happy memory.'), pr('If you were a dish, what would you taste like?'), pr('Who would you invite to a special dinner?'), pr('Set one big table with both your favourite foods.', true)] },
+    { name: 'Park', shape: 'B', color: '#9BD770', theme: 'garden', prompts: [pr('Draw each other with your ages swapped.'), pr('Draw something you’ve always wanted to do.'), pr('Draw a place you’d love to take each other.')] },
+  ] },
+];
+
+/** The Welcome Party's first pairs come already drawn ([Dadi's, the grandchild's]), one per prompt but the last. */
+export const WELCOME_DRAWN: [string, string][] = [['drum', 'mango'], ['note', 'bell'], ['diya', 'sun']];
+
+/** The n-th map (0 = the first one they make). */
+export function mapDef(n: number): MapDef {
+  if (n < STORY_MAPS.length) return STORY_MAPS[n];
+  const kind = MAPS[(n - STORY_MAPS.length) % MAPS.length];
+  return { name: kind.name, places: THEMES.map((t, i) => ({ name: kind.places[i], shape: t.shape, color: t.color, theme: t.theme })) };
+}
+
 /** Finished example maps: [prompt, Dadi's drawing, the grandchild's drawing] per theme, drawn with the sample icons. */
 export const EXAMPLE_PAIRS: Record<string, [string, string, string][]> = {
   river: [['Draw something that moves', 'waves', 'fish'], ['Draw something that floats', 'diya', 'boat'], ['Draw something shiny', 'fish', 'sun'], ['Draw something that sings', 'bird', 'note'], ['Draw something you see on a boat ride', 'fish', 'boat'], ['Draw something that lives in water', 'fish', 'fish'], ['Draw something wet', 'waves', 'boat'], ['Draw something that makes a splash', 'boat', 'fish']],

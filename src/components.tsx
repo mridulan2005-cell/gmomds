@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { MapScene, type MapConfig, type Pick, type Pov } from './map/MapScene';
-import { artUrl, scanUrl } from './lib/store';
+import { artUrl, promptDone, scanUrl, useApp } from './lib/store';
 import type { Drawing } from './lib/types';
 import { inkOf } from './lib/content';
 
@@ -10,17 +10,19 @@ export const Arrow = ({ w = 42, h = 28 }: { w?: number; h?: number }) => (
 export const Chevron = ({ dir, size = 26 }: { dir: 'l' | 'r'; size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 22 22" fill="none" stroke="#F26A2E" strokeWidth="3.6" strokeLinecap="round" strokeLinejoin="round"><path d={dir === 'l' ? 'M14 4 L7 11 L14 18' : 'M8 4 L15 11 L8 18'} /></svg>
 );
-const TodayIcon = () => <svg width="24" height="24" viewBox="-10 -10 20 20"><path d="M0 -10 Q1.6 -1.6 10 0 Q1.6 1.6 0 10 Q-1.6 1.6 -10 0 Q-1.6 -1.6 0 -10Z" fill="#F26A2E" /></svg>;
+const TodayIcon = ({ fill = '#F26A2E' }: { fill?: string }) => <svg width="24" height="24" viewBox="-10 -10 20 20"><path d="M0 -10 Q1.6 -1.6 10 0 Q1.6 1.6 0 10 Q-1.6 1.6 -10 0 Q-1.6 -1.6 0 -10Z" fill={fill} /></svg>;
 const MapIcon = () => <svg width="28" height="28" viewBox="0 0 24 24" fill="#F26A2E" fillOpacity=".25" stroke="#F26A2E" strokeWidth="2.4" strokeLinejoin="round"><path d="M2 5 L8 3 L16 6 L22 4 L22 19 L16 21 L8 18 L2 20 Z M8 3 L8 18 M16 6 L16 21" /></svg>;
 const BookIcon = () => <svg width="28" height="28" viewBox="0 0 24 24" fill="#F26A2E" fillOpacity=".25" stroke="#F26A2E" strokeWidth="2.4" strokeLinejoin="round"><path d="M12 6 Q7 3 2 4 L2 19 Q7 18 12 21 Q17 18 22 19 L22 4 Q17 3 12 6 Z M12 6 L12 21" /></svg>;
 
 export type Dest = 'home' | 'map' | 'book';
 export function Dock({ items, go }: { items: Dest[]; go: (d: Dest) => void }) {
-  const meta: Record<Dest, [string, ReactNode]> = { home: ["Today's prompt", <TodayIcon />], map: ['Map', <MapIcon />], book: ['Scrapbook', <BookIcon />] };
+  // today's prompt stands out while it is still waiting to be drawn
+  const s = useApp(), todo = !!s.prompt && !promptDone(s);
+  const meta: Record<Dest, [string, ReactNode]> = { home: ["Today's prompt", <TodayIcon fill={todo ? '#FFF3D1' : undefined} />], map: ['Map', <MapIcon />], book: ['Scrapbook', <BookIcon />] };
   return (
     <div className="dock">
       {items.map((d, i) => (
-        <button key={d} className="btn-cream" style={{ rotate: i ? '1deg' : '-1deg' }} onClick={() => go(d)}>{meta[d][1]}{meta[d][0]}</button>
+        <button key={d} className={'btn-cream' + (d === 'home' && todo ? ' cta' : '')} style={{ rotate: i ? '1deg' : '-1deg' }} onClick={() => go(d)}>{meta[d][1]}{meta[d][0]}</button>
       ))}
     </div>
   );

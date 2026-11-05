@@ -18,7 +18,9 @@ export interface DrawCfg {
   /** what it is ("cat", "a ginger cat"), for what they say when it is tapped */
   kind?: string; label?: string;
 }
-export interface PlaceCfg { name: string; shape: string; color: string; theme: string; status: 'locked' | 'current' | 'done'; pairs: [DrawCfg, DrawCfg][] }
+export interface PlaceCfg { name: string; shape: string; color: string; theme: string; status: 'locked' | 'current' | 'done'; pairs: [DrawCfg, DrawCfg][]; /** pairs that finish it (PAIRS when missing) */ total?: number }
+/** How far a place is built (0…4 scenery stages) after n of its total pairs. */
+const stageOf = (n: number, total: number) => (n >= total ? 4 : Math.max(0, Math.min(4, Math.round((n * 4) / total))));
 export interface MonthCfg { name: string; current: boolean; places: PlaceCfg[] }
 /** the caricatures they drew of each other (image URLs): d = Dadi, a = the grandchild */
 export interface Walkers { d: string; a: string }
@@ -337,8 +339,10 @@ export class MapScene {
   private island(p: PlaceCfg, o: { fresh?: number; fade?: boolean; q?: boolean; S?: number; pick?: Pick | null; label?: string | null; lockK?: number; walk?: boolean; walkH?: number }) {
     const G = new THREE.Group(), ig = this.islandGeo(p.shape), st = p.status, t0 = now();
     // the place in progress fills in with its colour, a little more with every pair (the newest bit after its pair has risen)
-    const stage = st === 'done' ? PAIRS : st === 'current' ? Math.min(PAIRS, p.pairs.length) : 0;
-    const fresh = st === 'current' && o.fresh != null && o.fresh >= 0 && o.fresh < PAIRS ? o.fresh + 1 : -1;
+    const T = p.total || PAIRS, stage = st === 'done' ? 4 : st === 'current' ? stageOf(p.pairs.length, T) : 0;
+    // the newest pair builds the stages after the one before it (a place with fewer pairs builds more than one at a time)
+    const isFresh = st === 'current' && o.fresh != null && o.fresh >= 0 && o.fresh < T;
+    const fresh = isFresh ? stageOf(o.fresh! + 1, T) : -1, freshFrom = isFresh ? stageOf(o.fresh!, T) : -1;
     let top: THREE.Material, side: THREE.Material, line: THREE.Material | null = null;
     if (st === 'done') {
       top = this.toon(p.color); side = this.toon(shade(p.color));
@@ -347,7 +351,7 @@ export class MapScene {
       else line = this.basic(INK);
     } else if (st === 'current') {
       const tm = this.own(new THREE.MeshToonMaterial({ color: '#ffffff', gradientMap: this.grad, transparent: true })), sm = this.own(new THREE.MeshToonMaterial({ color: '#ffffff', gradientMap: this.grad, transparent: true }));
-      const full = new THREE.Color(p.color), fullSide = new THREE.Color(shade(p.color)), f = stage / PAIRS, f0 = fresh > 0 ? (fresh - 1) / PAIRS : f;
+      const full = new THREE.Color(p.color), fullSide = new THREE.Color(shade(p.color)), f = stage / 4, f0 = fresh > 0 ? freshFrom / 4 : f;
       const paint = (k: number) => { tm.color.set('#ffffff').lerp(full, k); tm.opacity = 0.42 + 0.58 * k; sm.color.set('#ffffff').lerp(fullSide, k); sm.opacity = 0.2 + 0.8 * k; };
       paint(f0);
       if (f0 !== f) this.fx.push(n => { const k = this.reducedMotion ? 1 : clamp((n - t0 - 2.2) / 1.8, 0, 1); paint(f0 + (f - f0) * k); return k < 1; });
@@ -357,7 +361,7 @@ export class MapScene {
     if (line) { G.add(new THREE.Mesh(ig.top, line)); G.add(new THREE.Mesh(ig.bot, line)); }
     if (st !== 'done' || o.fade) { const dm = this.basic(st === 'locked' ? '#B5AA94' : INK); ig.dashes.forEach((d: THREE.BufferGeometry) => G.add(new THREE.Mesh(d, dm))); }
     const slots = p.pairs.length <= SLOTS4.length ? SLOTS4 : SLOTS, spots = this.spots(ig.poly, slots, hashSeed(p.shape + p.theme));
-    const beds = stage ? this.scenery(p.theme, G, ig.poly, spots, stage, fresh, t0) : [];
+    const beds = stage ? this.scenery(p.theme, G, ig.poly, spots, stage, fresh, t0, freshFrom) : [];
     // they walk on the place in progress too; there they just stroll, on a finished garden they smell the flowers
     if (st !== 'locked' && o.walk) this.islandWalkers(st === 'done' ? p.theme : '', G, o.walkH || 100, ig.poly, beds);
     if (o.pick) { mesh.userData.pick = o.pick; this.pickables.push(mesh); }
@@ -391,13 +395,13 @@ export class MapScene {
    * once its pair has risen. The river: a dry riverbed, then water, then it starts to flow, then lily pads and a bridge.
    * Returns the flower beds (the walkers smell the flowers there).
    */
-  private scenery(theme: string, G: THREE.Group, poly: number[][], spots: { x: number; z: number }[], stage: number, fresh: number, t0: number) {
+  private scenery(theme: string, G: THREE.Group, poly: number[][], spots: { x: number; z: number }[], stage: number, fresh: number, t0: number, freshFrom = fresh - 1) {
     const K = this.kit ||= (() => {
       const flow = new THREE.CapsuleGeometry(1.8, 10, 3, 6); flow.rotateX(Math.PI / 2);
       return { box: new THREE.BoxGeometry(1, 1, 1), ball: new THREE.IcosahedronGeometry(1, 1), cone: new THREE.ConeGeometry(1, 1, 7), cyl: new THREE.CylinderGeometry(1, 1, 1, 10), disc: new THREE.CircleGeometry(1, 24), flow } as Record<string, THREE.BufferGeometry>;
     })();
     let order = 0;
-    const show = (s: number, o: THREE.Object3D) => { if (s > stage) return null; G.add(o); if (s === fresh) this.growIn(o, t0 + 2.4 + order++ * 0.07); return o; };
+    const show = (s: number, o: THREE.Object3D) => { if (s > stage) return null; G.add(o); if (s > freshFrom && s <= fresh) this.growIn(o, t0 + 2.4 + order++ * 0.07); return o; };
     const put = (s: number, g: string, color: string, x: number, y: number, z: number, sx: number, sy = sx, sz = sx, glow = false) => {
       if (s > stage) return null; const o = new THREE.Mesh(K[g], glow ? this.basic(color) : this.toon(color)); o.position.set(x, y, z); o.scale.set(sx, sy, sz); return show(s, o) as THREE.Mesh;
     };
@@ -419,7 +423,7 @@ export class MapScene {
       // 2: water fills it
       ribbon(2, 22, '#3E8FDB', 1.9);
       // 3: it starts to flow (slowly at first) and reeds grow on the banks; 4: it flows properly, with lily pads and a little bridge
-      if (stage >= 3) for (let i = 0; i < 12; i++) { const f = new THREE.Mesh(K.flow, this.basic('#ffffff')); G.add(f); this.streams.push({ o: f, curve, i, n: 12, speed: stage >= 4 ? 1 : 0.4, from: fresh === 3 ? t0 + 3 : 0 }); }
+      if (stage >= 3) for (let i = 0; i < 12; i++) { const f = new THREE.Mesh(K.flow, this.basic('#ffffff')); G.add(f); this.streams.push({ o: f, curve, i, n: 12, speed: stage >= 4 ? 1 : 0.4, from: freshFrom < 3 && fresh >= 3 ? t0 + 3 : 0 }); }
       for (let i = 0; i < 10; i++) { const [x, z] = side((i + 0.3) / 10, (i % 2 ? 1 : -1) * (34 + R() * 6)); [-3, 0, 3].forEach((d, k) => put(3, 'cone', k === 1 ? '#3E9B48' : '#6CC24A', x + d, 8 + k * 2, z + d * 0.6, 1.6, 16 + k * 4, 1.6)); }
       [0.18, 0.36, 0.7, 0.86].forEach((u, i) => { const [x, z] = side(u, i % 2 ? 10 : -10); flat(put(4, 'disc', '#6CC24A', x, 4.2, z, 6)); put(4, 'ball', '#E9A3C0', x, 5.4, z, 2); });
       const q = curve.getPointAt(0.5), tg = curve.getTangentAt(0.5), bridge = new THREE.Group(), wood = this.toon('#B5793F');
@@ -481,7 +485,7 @@ export class MapScene {
     // while the map is in progress the two of them stroll on this week's place (or a finished one), and across the whole land once it is finished
     const cur = places.findIndex(p => p.status === 'current'), walkI = o.pick && !alive ? (cur >= 0 ? cur : places.findIndex(p => p.status === 'done')) : -1;
     places.forEach((p, i) => {
-      const lbl = p.status === 'done' ? p.name : p.status === 'current' ? 'This week · ' + Math.max(0, PAIRS - p.pairs.length) + ' to go' : null;
+      const lbl = p.status === 'done' ? p.name : p.status === 'current' ? 'This week · ' + Math.max(0, (p.total || PAIRS) - p.pairs.length) + ' to go' : null;
       const g = this.island(p, { label: o.labels !== false ? lbl : null, q: true, pick: o.pick && p.status !== 'locked' ? { type: 'place', pi: i } : null, lockK: 1.6, walk: i === walkI, walkH: 80 });
       g.position.set(MPOS[i][0], 0, MPOS[i][1]); G.add(g);
     });

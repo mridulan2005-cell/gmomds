@@ -30,11 +30,17 @@ export interface Drawing {
   hasArt?: boolean;
 }
 
-export interface Pair { promptId: string; prompt: string; dadi: string; child: string; slot: number }
+export interface Pair { promptId: string; prompt: string; dadi: string; child: string; slot: number; together?: boolean }
 export type PlaceStatus = 'locked' | 'current' | 'done';
-export interface Place { id: string; index: number; name: string; theme: string; shape: 'A' | 'B' | 'C' | 'D'; color: string; status: PlaceStatus; pairs: Pair[] }
+export interface Place {
+  id: string; index: number; name: string; theme: string; shape: 'A' | 'B' | 'C' | 'D'; color: string; status: PlaceStatus; pairs: Pair[];
+  /** pairs that finish this place (PAIRS when missing) */
+  total?: number;
+  /** a curated place's prompts, in order (else prompts are made from the theme and their loves) */
+  prompts?: { text: string; together?: boolean }[];
+}
 export interface Month { id: string; name: string; places: Place[] }
-export interface Prompt { id: string; text: string; date: string; placeId: string }
+export interface Prompt { id: string; text: string; date: string; placeId: string; together?: boolean }
 
 export interface AppState {
   version: 1;
@@ -51,5 +57,7 @@ export interface AppState {
   recentPrompts: string[];
   scanning: { promptId: string; dadi?: string } | null; // a pair in progress
   lastFresh: { placeId: string; slot: number } | null;  // newest pair, rises on the map once
+  /** when today's pair was finished; the next prompt arrives 24 hours later */
+  doneAt?: number;
   examples?: boolean; // the finished example maps were added
 }

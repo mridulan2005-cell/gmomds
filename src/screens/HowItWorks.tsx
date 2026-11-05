@@ -1,7 +1,6 @@
 // "How it works": three cards shown once, right after onboarding, before the first prompt.
 import type { Go } from '../App';
 import { Arrow } from '../components';
-import { PAIRS_WORD } from '../lib/content';
 
 // the card pictures, as drawn in the prototype (static, trusted markup)
 const ART = [
@@ -13,7 +12,7 @@ const ART = [
 const CARDS = [
   { n: 1, color: '#3B6FE0', tilt: -1, title: 'Daily prompt, together', text: 'Every day you both get the same prompt. Draw it side by side.' },
   { n: 2, color: '#F26A2E', tilt: 1, title: 'Your drawings come alive', text: 'Scan them in and watch them move on your map.' },
-  { n: 3, color: '#8E7FD0', tilt: -1, title: 'Finish maps, walk around!', text: `${PAIRS_WORD} days build a place. Fill whole maps, then walk around inside them.` },
+  { n: 3, color: '#8E7FD0', tilt: -1, title: 'Finish maps, walk around!', text: 'A few days build a place. Fill whole maps, then walk around inside them.' },
 ];
 
 export function HowItWorks({ go }: { go: Go }) {

@@ -2,7 +2,7 @@
 import { useSyncExternalStore } from 'react';
 import { get, set, del, keys } from 'idb-keyval';
 import type { AppState, Drawing, Month, Pair, Place, PersonId, Prompt } from './types';
-import { LOVE_PROMPTS, THEMES, ICON, MAPS, EXAMPLE_PAIRS, PAIRS, guessFor, fillFor } from './content';
+import { LOVE_PROMPTS, THEMES, ICON, MAPS, PAIRS, WELCOME_DRAWN, guessFor, fillFor, mapDef } from './content';
 
 const KEY = 'dadis-map:state';
 /** Placeholder caricatures, until they draw each other. */
@@ -10,14 +10,19 @@ export const SKETCH = { dadi: import.meta.env.BASE_URL + 'sketch-dadi.png', chil
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 export const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
-/** The n-th map: a kind of place (a town, a hillside, an animal sanctuary…) whose four places are named for it. */
+/** The n-th map they make: the Welcome Party, the Dream House, then kinds of places (a town, a hillside…). */
 function newMonth(n: number): Month {
-  const kind = MAPS[n % MAPS.length];
+  const def = mapDef(n);
   return {
-    id: uid(), name: kind.name,
-    places: THEMES.map((t, i): Place => ({ id: uid(), index: i, name: kind.places[i], theme: t.theme, shape: t.shape, color: t.color, status: i === 0 ? 'current' : 'locked', pairs: [] })),
+    id: uid(), name: def.name,
+    places: def.places.map((t, i): Place => ({
+      id: uid(), index: i, name: t.name, theme: t.theme, shape: t.shape, color: t.color, status: i === 0 ? 'current' : 'locked', pairs: [],
+      ...(t.prompts ? { total: t.prompts.length, prompts: t.prompts } : {}),
+    })),
   };
 }
+/** Pairs that finish a place. */
+export const placeTotal = (p: Place) => p.total || PAIRS;
 
 function sampleDrawing(s: AppState, who: PersonId, promptId: string, kind: string, createdAt = Date.now()): Drawing {
   const g = guessFor(kind), id = uid();
@@ -25,28 +30,16 @@ function sampleDrawing(s: AppState, who: PersonId, promptId: string, kind: strin
   s.drawings[id] = d; return d;
 }
 
-/** Two finished maps to start with (after the one in progress), so the stack and the scrapbook aren't empty. */
-function addExampleMaps(s: AppState) {
-  const DAY = 86400000;
-  for (const n of [1, 2]) {
-    const m = newMonth(n);
-    m.places.forEach((p, pi) => {
-      p.status = 'done';
-      const pool = EXAMPLE_PAIRS[p.theme];
-      for (let k = 0; k < PAIRS; k++) {
-        const [prompt, a, b] = pool[(k + n - 1) % pool.length], pid = uid(), at = Date.now() - ((n * 4 - pi) * 7 - k) * DAY;
-        const d = sampleDrawing(s, 'dadi', pid, n === 1 ? a : b, at), c = sampleDrawing(s, 'child', pid, n === 1 ? b : a, at);
-        p.pairs.push({ promptId: pid, prompt, dadi: d.id, child: c.id, slot: k });
-      }
-    });
-    s.months.push(m);
-  }
-  s.examples = true;
-}
-
 function fresh(): AppState {
-  const s: AppState = { version: 1, onboarded: false, names: { dadi: 'Sunita', child: 'Aarav' }, loves: { dadi: [], child: [] }, faces: { ...SKETCH }, months: [newMonth(0)], drawings: {}, prompt: null, recentPrompts: [], scanning: null, lastFresh: null };
-  addExampleMaps(s);
+  // the first map is the Welcome Party; finished maps join the stack as they make them
+  const s: AppState = { version: 1, onboarded: false, names: { dadi: 'Sunita', child: 'Aarav' }, loves: { dadi: [], child: [] }, faces: { ...SKETCH }, months: [newMonth(0)], drawings: {}, prompt: null, recentPrompts: [], scanning: null, lastFresh: null, examples: true };
+  // the party is already in full swing: its first pairs are drawn, so their first prompt after onboarding is its last one
+  const party = s.months[0].places[0], DAY = 86_400_000;
+  WELCOME_DRAWN.forEach(([a, b], k) => {
+    const pid = uid(), at = Date.now() - (WELCOME_DRAWN.length - k) * DAY;
+    const d = sampleDrawing(s, 'dadi', pid, a, at), c = sampleDrawing(s, 'child', pid, b, at);
+    party.pairs.push({ promptId: pid, prompt: party.prompts![k].text, dadi: d.id, child: c.id, slot: k });
+  });
   return s;
 }
 
@@ -72,7 +65,6 @@ export async function load() {
       // maps used to be named after months; name them for kinds of places instead, and add the example maps once
       const months = new Set(Array.from({ length: 12 }, (_, i) => new Date(2000, i, 1).toLocaleString('en', { month: 'long' })));
       state.months.forEach((m, i) => { if (months.has(m.name)) m.name = MAPS[(state.months.length - 1 - i) % MAPS.length].name; });
-      if (!s.examples) { addExampleMaps(state); persist(); }
       // the old placeholder names become Sunita and Aarav
       if (state.names.dadi === 'Dadi' && state.names.child === 'Anu') { state.names = { dadi: 'Sunita', child: 'Aarav' }; persist(); }
     }
@@ -90,7 +82,13 @@ export function placeById(s: AppState, id: string): { place: Place; mi: number; 
 /** Today's pair is finished when the current prompt already has a pair on the map. */
 export function promptDone(s: AppState) { const p = s.prompt; if (!p) return false; return s.months.some(m => m.places.some(pl => pl.pairs.some(pr => pr.promptId === p.id))); }
 /** The place in progress has all its pairs and waits for its reveal. */
-export const readyToReveal = (s: AppState) => { const p = currentPlace(s); return !!p && p.pairs.length >= PAIRS; };
+export const readyToReveal = (s: AppState) => { const p = currentPlace(s); return !!p && p.pairs.length >= placeTotal(p); };
+const DAY = 86_400_000;
+/** When the next prompt arrives: 24 hours after today's pair was finished (midnight for pairs made before that was recorded). */
+export function nextPromptAt(s: AppState) {
+  if (s.doneAt) return s.doneAt + DAY;
+  const d = new Date(); d.setHours(24, 0, 0, 0); return d.getTime();
+}
 
 // ---------- prompts ----------
 function curatedPrompt(s: AppState, theme: string): string {
@@ -106,10 +104,16 @@ let promptBusy = false;
 /** Make sure there is a prompt for today. A missed day carries the prompt over; a finished one is replaced the next day. */
 export async function ensurePrompt(force = false) {
   const s = state, place = currentPlace(s);
-  if (!place || place.pairs.length >= PAIRS || promptBusy) return;
+  if (!place || place.pairs.length >= placeTotal(place) || promptBusy) return;
   const done = promptDone(s);
-  const stillGood = s.prompt && s.prompt.placeId === place.id && (!done || s.prompt.date === today());
+  const stillGood = s.prompt && s.prompt.placeId === place.id && (!done || Date.now() < nextPromptAt(s));
   if (!force && stillGood) return;
+  // a curated place has its own prompts, in order
+  const own = place.prompts?.[place.pairs.length];
+  if (own) {
+    update(st => { st.prompt = { id: uid(), text: own.text, date: today(), placeId: place.id, ...(own.together ? { together: true } : {}) }; st.recentPrompts = [...st.recentPrompts, own.text].slice(-20); st.scanning = null; });
+    return;
+  }
   promptBusy = true;
   let text = curatedPrompt(s, place.theme);
   try {
@@ -140,8 +144,8 @@ export function addDrawing(d: Drawing) {
     // the grandchild's scan completes the pair: place it on the island
     const dadiId = s.scanning?.dadi; const place = s.months[0].places.find(p => p.status === 'current');
     if (!dadiId || !place) return;
-    const pair: Pair = { promptId: s.prompt.id, prompt: s.prompt.text, dadi: dadiId, child: d.id, slot: place.pairs.length };
-    place.pairs.push(pair); s.scanning = null; s.lastFresh = { placeId: place.id, slot: pair.slot };
+    const pair: Pair = { promptId: s.prompt.id, prompt: s.prompt.text, dadi: dadiId, child: d.id, slot: place.pairs.length, ...(s.prompt.together ? { together: true } : {}) };
+    place.pairs.push(pair); s.scanning = null; s.lastFresh = { placeId: place.id, slot: pair.slot }; s.doneAt = Date.now();
   });
 }
 /** A retake: the new scan takes the old one's place (in the pair on the map, or the scan in progress). */
@@ -160,7 +164,7 @@ export function clearFresh() { if (state.lastFresh) update(s => { s.lastFresh = 
 export function completePlace() {
   update(s => {
     const m = s.months[0], i = m.places.findIndex(p => p.status === 'current');
-    if (i < 0 || m.places[i].pairs.length < PAIRS) return;
+    if (i < 0 || m.places[i].pairs.length < placeTotal(m.places[i])) return;
     m.places[i].status = 'done';
     if (i + 1 < m.places.length) m.places[i + 1].status = 'current';
     else s.months.unshift(newMonth(s.months.length));
@@ -184,12 +188,15 @@ export function addSamplePairs(n: number) {
   const kinds = Object.keys(ICON);
   update(s => {
     const place = s.months[0].places.find(p => p.status === 'current'); if (!place) return;
-    for (let k = 0; k < n && place.pairs.length < PAIRS; k++) {
+    for (let k = 0; k < n && place.pairs.length < placeTotal(place); k++) {
       const pid = uid(), mk = (who: PersonId) => sampleDrawing(s, who, pid, kinds[Math.floor(Math.random() * kinds.length)]);
-      const a = mk('dadi'), b = mk('child');
-      place.pairs.push({ promptId: pid, prompt: 'Sample: ' + a.kind + ' & ' + b.kind, dadi: a.id, child: b.id, slot: place.pairs.length });
+      const a = mk('dadi'), b = mk('child'), own = place.prompts?.[place.pairs.length];
+      place.pairs.push({ promptId: pid, prompt: own ? own.text : 'Sample: ' + a.kind + ' & ' + b.kind, dadi: a.id, child: b.id, slot: place.pairs.length, ...(own?.together ? { together: true } : {}) });
     }
+    // today's prompt moves on with them
+    if (place.prompts) { s.prompt = null; s.scanning = null; }
   });
+  void ensurePrompt();
 }
 
 export { uid };
