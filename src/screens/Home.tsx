@@ -61,7 +61,6 @@ export function Home({ go, dest }: { go: Go; dest: (d: Dest) => void }) {
         ) : s.prompt ? (
           <>
             {together ? <TogetherArt /> : <SoloArt />}
-            {s.prompt.title && <div className="prompt-title">{s.prompt.title}</div>}
             <div className="prompt">{s.prompt.text}</div>
             {s.prompt.rule && <div className="prompt-rule"><i aria-hidden="true" />{s.prompt.rule}</div>}
             <button className="btn-primary big" style={{ marginTop: 14 }} onClick={() => go({ screen: 'scan', who: resumeChild ? 'child' : 'dadi' })}>

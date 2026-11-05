@@ -8,14 +8,18 @@ import { Arrow, BookIcon, Chevron, MapIcon, TodayIcon } from './icons';
 export { Arrow, Chevron };
 
 export type Dest = 'home' | 'map' | 'book';
-export function Dock({ items, go }: { items: Dest[]; go: (d: Dest) => void }) {
+export function Dock({ items, go, point }: { items: Dest[]; go: (d: Dest) => void; point?: Dest }) {
   // today's prompt stands out while it is still waiting to be drawn
   const s = useApp(), todo = !!s.prompt && !promptDone(s);
   const meta: Record<Dest, [string, ReactNode]> = { home: ["Today's prompt", <TodayIcon />], map: ['Map', <MapIcon />], book: ['Scrapbook', <BookIcon />] };
   return (
     <div className="dock">
       {items.map((d, i) => (
-        <button key={d} className={'btn-cream' + (d === 'home' && todo ? ' cta' : '')} style={{ rotate: i ? '1deg' : '-1deg' }} onClick={() => go(d)}>{meta[d][1]}{meta[d][0]}</button>
+        <span key={d} className="dock-slot">
+          {/* a hand-drawn red arrow nudging them towards this button */}
+          {point === d && <img className="dock-arrow" src={import.meta.env.BASE_URL + 'art/arrow.png'} alt="" aria-hidden="true" draggable={false} />}
+          <button className={'btn-cream' + (d === 'home' && todo ? ' cta' : '')} style={{ rotate: i ? '1deg' : '-1deg' }} onClick={() => go(d)}>{meta[d][1]}{meta[d][0]}</button>
+        </span>
       ))}
     </div>
   );

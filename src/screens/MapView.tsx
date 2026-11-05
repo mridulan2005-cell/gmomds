@@ -78,13 +78,14 @@ export function MapView({ route: route0, go, dest }: { route: MapRoute; go: Go; 
       if (m.dream && m.places.some(p => p.room === 'house' && p.status === 'done') && fresh < 0) peekBtn = true;
       // the place's name stays a mystery until its last drawing goes in (a one-place map is named already: it is the map)
       const solo = m.places.length === 1 && !m.dream;
-      title = solo ? m.name + (done ? '' : ' · in progress') : done ? place.name : '???';
-      hint = !done && n === 0 ? `Next up in ${s.months[mi].name} · tap Today’s prompt to begin` : 'Drag to move around · two fingers to turn';
+      // the last drawing has just gone in: the place reveals itself on its own
+      freshLast = fresh >= 0 && place.status === 'current' && n >= total;
+      // (the last pair of a one-place map goes straight on to its completion, with no "in progress" in between)
+      title = freshLast ? 'The last drawing goes in…' : solo ? m.name + (done ? '' : ' · in progress') : done ? place.name : '???';
+      hint = freshLast ? '' : !done && n === 0 ? `Next up in ${s.months[mi].name} · tap Today’s prompt to begin` : 'Drag to move around · two fingers to turn';
       back = solo ? { label: 'All maps', to: { screen: 'stack' } } : { label: 'Map', to: { screen: 'interior', mi } };
       stepper = { n, total, fresh: fresh >= 0, done };
       if (done) bookBtn = place.id;
-      // the last drawing has just gone in: the place reveals itself on its own
-      freshLast = fresh >= 0 && place.status === 'current' && n >= total;
       // the house is still being built (front, walls, roof, door) before it reveals itself
       if (freshLast && place.room === 'house') revealDelay = 7600;
       if (!done && !freshLast && n >= total && place.status === 'current') action = { label: 'See what we made', run: () => go({ screen: 'reveal' }) };
@@ -133,6 +134,9 @@ export function MapView({ route: route0, go, dest }: { route: MapRoute; go: Go; 
   const win = route.screen === 'reveal' && !!revealPlace && stage >= 2;
   const winName = revealPlace && getState().months[0].places.at(-1)?.id === revealPlace.id && getState().months[0].places.length > 1 ? getState().months[0].name : revealPlace?.name;
   const showDock = route.screen !== 'reveal' && !action && !pov && !freshLast;
+  // right after the Welcome Party, on the next map (nothing drawn on it yet), an arrow points them to Today's prompt
+  const m0 = s.months[0], onM0 = route.screen === 'stack' || (route.screen === 'interior' ? route.mi === 0 : route.screen === 'place' && placeById(s, route.placeId)?.mi === 0);
+  const pointPrompt = showDock && onM0 && s.months.length === 2 && m0.places.every(p => !p.pairs.length && p.status !== 'done');
   return (
     <div className="screen mapbg">
       <Cloud fill="#E6F6F3" style={{ left: 60, top: 110, animation: 'drift 45s ease-in-out infinite alternate' }} />
@@ -197,7 +201,7 @@ export function MapView({ route: route0, go, dest }: { route: MapRoute; go: Go; 
       {peekBtn && !pov && !action && <button className="btn-cream peek-btn" onClick={() => setPeek(v => !v)}>{peek ? 'Put the roof back' : 'Look inside'}</button>}
       {action && !pov && <div className="place-btn"><button className="btn-primary" style={{ height: 84, fontSize: 30 }} onClick={action.run}><Arrow />{action.label}</button></div>}
       {back && !pov && <Back label={back.label} onClick={() => go(back!.to)} />}
-      {showDock && <Dock items={['home', 'book']} go={dest} />}
+      {showDock && <Dock items={['home', 'book']} go={dest} point={pointPrompt ? 'home' : undefined} />}
     </div>
   );
 }
