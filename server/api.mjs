@@ -143,18 +143,64 @@ function errorReply(e) {
   return { status: 500, json: { error: 'server_error' } };
 }
 
-/** Connect-style middleware: POST /api/recognise, POST /api/prompt, GET /api/health */
+// ---- the voice: a natural neural voice (Azure Speech), warm and lively ----
+// AZURE_SPEECH_KEY + AZURE_SPEECH_REGION turn it on; without them the tablet uses its own voices.
+const hasTts = () => !!(process.env.AZURE_SPEECH_KEY && process.env.AZURE_SPEECH_REGION);
+const VOICES = {
+  en: process.env.DADI_VOICE_EN || 'en-IN-NeerjaNeural',
+  hi: process.env.DADI_VOICE_HI || 'hi-IN-SwaraNeural',
+};
+const esc = s => s.replace(/[<>&'"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' })[c]);
+/** Each sentence gets its own lift: a greeting or an exclamation brighter, a question rising, an instruction calm and clear. */
+export function ssml(text, lang, mood) {
+  const voice = lang === 'hi' ? VOICES.hi : VOICES.en, xl = lang === 'hi' ? 'hi-IN' : 'en-IN', hype = mood === 'excited';
+  const parts = text.match(/[^.!?।]+[.!?।]*\s*/g) || [text];
+  const body = parts.map((p, i) => {
+    const s = p.trim(); if (!s) return '';
+    const bang = /!$/.test(s), ask = /\?$/.test(s), joy = hype && (bang || i === 0);
+    // excited: the happy sentences jump up and quicken; the instruction after them settles back to calm and clear
+    const pitch = joy ? (i === 0 ? '+18%' : '+14%') : bang ? '+8%' : ask ? '+6%' : i === 0 ? '+3%' : '+0%';
+    const rate = joy ? '+10%' : bang ? '+4%' : ask ? '+0%' : '-4%';
+    const range = joy ? ' range="+40%"' : '';
+    return `<prosody pitch="${pitch}" rate="${rate}"${range}>${esc(s)}</prosody><break time="${joy ? 320 : bang || ask ? 260 : 200}ms"/>`;
+  }).join('');
+  // en-IN Neerja has speaking styles: cheerful normally, extra cheerful when excited; other voices just use the prosody above
+  const inner = /Neerja/i.test(voice) ? `<mstts:express-as style="cheerful" styledegree="${hype ? 2 : 1.2}">${body}</mstts:express-as>` : body;
+  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="${xl}"><voice name="${voice}">${inner}</voice></speak>`;
+}
+/** POST /api/tts {text, lang} → audio/mpeg */
+export async function tts(body) {
+  if (!hasTts()) return { status: 503, json: { error: 'no_tts' } };
+  const text = String(body?.text || '').slice(0, 600).trim(), lang = body?.lang === 'hi' ? 'hi' : 'en', mood = body?.mood === 'excited' ? 'excited' : 'warm';
+  if (!text) return { status: 400, json: { error: 'no_text' } };
+  try {
+    const r = await fetch(`https://${process.env.AZURE_SPEECH_REGION}.tts.speech.microsoft.com/cognitiveservices/v1`, {
+      method: 'POST',
+      headers: { 'Ocp-Apim-Subscription-Key': process.env.AZURE_SPEECH_KEY, 'Content-Type': 'application/ssml+xml', 'X-Microsoft-OutputFormat': 'audio-24khz-96kbitrate-mono-mp3', 'User-Agent': 'dadis-map' },
+      body: ssml(text, lang, mood),
+    });
+    if (!r.ok) { console.error('[dadi tts]', r.status, await r.text().catch(() => '')); return { status: 502, json: { error: 'tts_failed' } }; }
+    return { status: 200, audio: Buffer.from(await r.arrayBuffer()) };
+  } catch (e) { console.error('[dadi tts]', e); return { status: 502, json: { error: 'tts_failed' } }; }
+}
+
+/** Connect-style middleware: POST /api/recognise, POST /api/prompt, POST /api/tts, GET /api/health */
 export function apiMiddleware() {
   return async (req, res, next) => {
     const url = (req.url || '').split('?')[0];
     if (!url.startsWith('/api/')) return next();
     const send = (status, json) => { res.statusCode = status; res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(json)); };
-    if (url === '/api/health') return send(200, { ai: hasCredentials(), model: MODEL });
+    if (url === '/api/health') return send(200, { ai: hasCredentials(), model: MODEL, tts: hasTts() });
     if (req.method !== 'POST') return send(405, { error: 'method' });
     let raw = '';
     for await (const chunk of req) { raw += chunk; if (raw.length > 12e6) return send(413, { error: 'too_big' }); }
     let body = {};
     try { body = JSON.parse(raw || '{}'); } catch { return send(400, { error: 'bad_json' }); }
+    if (url === '/api/tts') {
+      const r = await tts(body);
+      if (!r.audio) return send(r.status, r.json);
+      res.statusCode = 200; res.setHeader('content-type', 'audio/mpeg'); res.setHeader('cache-control', 'public, max-age=31536000, immutable'); return res.end(r.audio);
+    }
     const r = url === '/api/recognise' ? await recognise(body) : url === '/api/prompt' ? await makePrompt(body) : { status: 404, json: { error: 'not_found' } };
     send(r.status, r.json);
   };

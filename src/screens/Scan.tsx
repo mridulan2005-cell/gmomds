@@ -193,7 +193,7 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
   useSay(phase === 'done' ? t("It's scanned! Tap the orange button to go on.") : phase === 'error' ? t("Let's try that again. Tap Try again.")
     : phase === 'processing' || phase === 'scanning' ? null
     : house ? t('Put your dream house on the tray and keep it still. Then tap Take.') : shared ? t('Put your drawing on the tray and keep it still. Then tap Take.')
-    : t("Put {name}'s drawing on the tray and keep it still. Then tap Take.", { name }), t.lang);
+    : t("Put {name}'s drawing on the tray and keep it still. Then tap Take.", { name }), t.lang, phase === 'done' ? 'excited' : 'warm');
 
   return (
     <div className="screen scan safe-top">

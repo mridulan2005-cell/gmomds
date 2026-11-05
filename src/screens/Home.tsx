@@ -32,7 +32,7 @@ export function Home({ go, dest }: { go: Go; dest: (d: Dest) => void }) {
     : s.prompt ? (resumeChild ? t("{name}, it's your turn. Tap {name}'s turn to scan your drawing.", { name: s.names.child })
       : together ? t("Today you draw together, on one sheet: {prompt}. When you're done, tap We're done.", { prompt: promptText })
       : t("Today's doodle: {prompt}. Draw it on paper, each on your own sheet. When you're both done, tap We're done.", { prompt: promptText }))
-    : null, t.lang);
+    : null, t.lang, pin || ready || done ? 'excited' : 'warm');
 
   return (
     <div className={'screen home' + (together ? ' together' : '')}>

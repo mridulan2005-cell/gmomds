@@ -7,7 +7,7 @@ import { useSay } from '../lib/voice';
 
 export function Sketches({ go }: { go: Go }) {
   const s = useApp(), t = useT();
-  useSay(t("Here are today's sketches! Tap Show on map to see them come alive."), t.lang);
+  useSay(t("Here are today's sketches! Tap Show on map to see them come alive."), t.lang, 'excited');
   // the newest pair on the map
   const place = s.months[0].places.find(p => p.id === s.lastFresh?.placeId) || s.months[0].places.find(p => p.status === 'current');
   const pair = place?.pairs[place.pairs.length - 1];

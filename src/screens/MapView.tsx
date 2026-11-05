@@ -52,7 +52,7 @@ export function MapView({ route: route0, go, dest }: { route: MapRoute; go: Go; 
 
   let cfg: MapConfig | null = null, title = '', hint = '', back: { label: string; to: Route } | null = null;
   let stepper: { n: number; total: number; fresh: boolean; done: boolean } | null = null, freshLast = false, action: { label: string; run: () => void } | null = null, bookBtn: string | null = null;
-  let peekBtn = false, revealDelay = 4800, voice: string | null = null;
+  let peekBtn = false, revealDelay = 4800, voice: string | null = null, excited = false;
 
   if (route.screen === 'stack') {
     cfg = { mode: 'stack', key: 'stack', months: stackCfg(s) };
@@ -71,7 +71,7 @@ export function MapView({ route: route0, go, dest }: { route: MapRoute; go: Go; 
     } else if (route.mi === 0 && awaitingPin(s)) {
       // the map has come alive: a pin at its edge waits to be walked to
       title = t(m.name); hint = t('Press Play and follow the light to the pin');
-      voice = t('Your map has come alive! Press Play and follow the light to the red pin.');
+      voice = t('Your map has come alive! Press Play and follow the light to the red pin.'); excited = true;
     } else {
       title = t(m.name) + (route.mi === 0 && m.places.some(p => p.status !== 'done') ? t(' · in progress') : ''); hint = t('Drag to move around · two fingers to turn · tap a ' + (m.dream ? 'room' : 'place') + ' to visit it');
       voice = t('Here is {name}. Drag to look around, or press Play to walk inside.', { name: t(m.name) });
@@ -101,7 +101,8 @@ export function MapView({ route: route0, go, dest }: { route: MapRoute; go: Go; 
       if (done) bookBtn = place.id;
       // the house is still being built (front, walls, roof, door) before it reveals itself
       if (freshLast && place.room === 'house') revealDelay = 7600;
-      if (!done && !freshLast && n >= total && place.status === 'current') { action = { label: t('See what we made'), run: () => go({ screen: 'reveal' }) }; voice = t('Your place is ready! Tap See what we made.'); }
+      if (freshLast) { voice = t('Here comes the last drawing!'); excited = true; }
+      if (!done && !freshLast && n >= total && place.status === 'current') { action = { label: t('See what we made'), run: () => go({ screen: 'reveal' }) }; voice = t('Your place is ready! Tap See what we made.'); excited = true; }
     }
   } else if (route.screen === 'reveal' && revealPlace) {
     const p = { ...revealPlace }, solid = stage >= 1, m0 = getState().months[0];
@@ -163,12 +164,12 @@ export function MapView({ route: route0, go, dest }: { route: MapRoute; go: Go; 
   const win = route.screen === 'reveal' && !!revealPlace && stage >= 2;
   const winName0 = revealPlace && getState().months[0].places.at(-1)?.id === revealPlace.id && getState().months[0].places.length > 1 ? getState().months[0].name : revealPlace?.name;
   const winName = winName0 ? t(winName0) : '';
-  if (win && winName) voice = t(revealPlace!.room === 'house' ? '{name}: built! Tap the orange button to go on.' : '{name}: complete! Tap the orange button to go on.', { name: winName });
+  if (win && winName) { voice = t(revealPlace!.room === 'house' ? 'Yay! {name} is built! Tap the orange button to go on.' : 'Yay! {name} is complete! Tap the orange button to go on.', { name: winName }); excited = true; }
   // the voice: this screen, the pin card, or walking around
   const findPin0 = findPin;
   useSay(pinCard ? t("You found the pin! Build a bridge to go to your next map. Tap Let's draw it.")
     : pov ? (findPin0 ? t('Follow the light to the red pin.') : t('Use the joystick to walk around. Tap a drawing, a flower, {a} or {b} to say hello.', { a: s.names.dadi, b: s.names.child }))
-    : note || voice, t.lang);
+    : note || voice, t.lang, pinCard || (!pov && (!!note || excited)) ? 'excited' : 'warm');
   const showDock = route.screen !== 'reveal' && !action && !pov && !freshLast;
   // right after the Welcome Party, on the next map (nothing drawn on it yet), an arrow points them to Today's prompt
   const m0 = s.months[0], onM0 = route.screen === 'stack' || (route.screen === 'interior' ? route.mi === 0 : route.screen === 'place' && placeById(s, route.placeId)?.mi === 0);
