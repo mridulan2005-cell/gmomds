@@ -329,3 +329,4 @@ a.btn-cream { text-decoration: none; }
 .skip-scan { position: absolute; left: calc(12px + env(safe-area-inset-left)); bottom: calc(12px + env(safe-area-inset-bottom)); width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%; background: rgba(61, 43, 34, .1); color: rgba(61, 43, 34, .55); display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 2; }
 .skip-scan:active { background: rgba(61, 43, 34, .2); }
 .placeholder-art { width: 70%; height: 70%; }
+.build-note.lock-note { animation-duration: 3.2s; }

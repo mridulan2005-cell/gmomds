@@ -44,7 +44,9 @@ export type MapConfig = (
   | { mode: 'dream'; key: string; dream: DreamCfg; focus?: DreamFocus; fresh?: { room: RoomKey | 'house'; i: number } | null; peek?: boolean }
 ) & { walkers?: Walkers; names?: { d: string; a: string } };
 type DreamMapCfg = Extract<MapConfig, { mode: 'dream' }>;
-export type Pick = { type: 'place'; pi: number } | { type: 'month'; mi: number } | { type: 'room'; room: RoomKey | 'house' };
+export type Pick = { type: 'place'; pi: number } | { type: 'month'; mi: number } | { type: 'room'; room: RoomKey | 'house' }
+  /** a locked place's padlock (mi: which map, when tapped in the stack) */
+  | { type: 'lock'; mi?: number; pi?: number; room?: RoomKey | 'house' };
 /** whose eyes the map is seen through: d = Dadi, a = the grandchild, null = the usual view from above */
 export type Pov = 'd' | 'a' | null;
 
@@ -393,16 +395,19 @@ export class MapScene {
     const s = new THREE.Sprite(this.own(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false })));
     const k = o.k || 1; s.scale.set(c.width * k, c.height * k, 1); s.renderOrder = 10; return s;
   }
-  private lockSprite(k = 1) {
+  private lockSprite(k = 1, pick?: Pick) {
     const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d')!;
     x.fillStyle = '#FFF3D1'; x.strokeStyle = INK; x.lineWidth = 6; x.beginPath(); x.arc(64, 64, 56, 0, 7); x.fill(); x.stroke();
     x.lineWidth = 7; x.lineCap = 'round'; x.beginPath(); x.moveTo(48, 60); x.lineTo(48, 48); x.arc(64, 48, 16, Math.PI, 0); x.lineTo(80, 60); x.stroke();
     x.fillStyle = '#F26A2E'; x.beginPath(); if ((x as any).roundRect) (x as any).roundRect(40, 58, 48, 36, 8); else x.rect(40, 58, 48, 36); x.fill(); x.stroke();
     const tex = this.own(new THREE.CanvasTexture(c)); tex.colorSpace = THREE.SRGBColorSpace;
-    const s = new THREE.Sprite(this.own(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }))); s.scale.set(90 * k, 90 * k, 1); return s;
+    const s = new THREE.Sprite(this.own(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }))); s.scale.set(90 * k, 90 * k, 1);
+    // tapping the padlock says how far away the place still is
+    if (pick) { s.userData.pick = pick; this.pickables.push(s); }
+    return s;
   }
 
-  private island(p: PlaceCfg, o: { fresh?: number; fade?: boolean; q?: boolean; S?: number; pick?: Pick | null; label?: string | null; lockK?: number; walk?: boolean; walkH?: number }) {
+  private island(p: PlaceCfg, o: { fresh?: number; fade?: boolean; q?: boolean; S?: number; pick?: Pick | null; label?: string | null; lockK?: number; walk?: boolean; walkH?: number; lockPick?: Pick }) {
     const G = new THREE.Group(), ig = this.islandGeo(p.shape), st = p.status, t0 = now();
     // the place in progress fills in with its colour, a little more with every pair (the newest bit after its pair has risen)
     const T = p.total || PAIRS, stage = st === 'done' ? 4 : st === 'current' ? stageOf(p.pairs.length, T) : 0;
@@ -442,7 +447,7 @@ export class MapScene {
       });
     });
     if (st === 'current' && o.q) { const q = this.sprite('?', { size: 150, color: '#8E7FD0' }); q.position.set(0, 150, 0); G.add(q); this.qs.push(q); this.huds.push(q); }
-    if (st === 'locked') { const l = this.lockSprite(o.lockK || 1.4); l.position.set(0, 70, 0); G.add(l); }
+    if (st === 'locked') { const l = this.lockSprite(o.lockK || 1.4, o.lockPick); l.position.set(0, 70, 0); G.add(l); }
     if (o.label) { const s = this.sprite(o.label, { size: 46, pill: true, bg: st === 'done' ? INK : '#FFF3D1', color: st === 'done' ? '#FFF3D1' : INK, k: 1.25 }); s.position.set(0, 215, -60); s.material.depthTest = false; s.renderOrder = 999; G.add(s); this.huds.push(s); }
     return G;
   }
@@ -548,19 +553,19 @@ export class MapScene {
     return [];
   }
 
-  private month(places: PlaceCfg[], o: { pick?: boolean; labels?: boolean; lite?: boolean; kind?: string } = {}) {
+  private month(places: PlaceCfg[], o: { pick?: boolean; labels?: boolean; lite?: boolean; kind?: string; mi?: number } = {}) {
     const G = new THREE.Group(), alive = places.length > 0 && places.every(p => p.status === 'done');
     // a map of one place (the Welcome Party) is that place itself: it fills the whole map, not one corner of a land
     if (places.length === 1) {
       const p = places[0], lbl = o.labels !== false && p.status === 'current' ? 'This week · ' + Math.max(0, (p.total || PAIRS) - p.pairs.length) + ' to go' : null;
-      const g = this.island(p, { label: lbl, q: true, pick: o.pick && p.status !== 'locked' ? { type: 'place', pi: 0 } : null, lockK: 1.6, walk: !!o.pick, walkH: 100, S: 76 });
+      const g = this.island(p, { label: lbl, q: true, pick: o.pick && p.status !== 'locked' ? { type: 'place', pi: 0 } : null, lockPick: { type: 'lock', mi: o.mi, pi: 0 }, lockK: 1.6, walk: !!o.pick, walkH: 100, S: 76 });
       g.scale.setScalar(2.6); G.add(g); G.userData.alive = false; return G;
     }
     // while the map is in progress the two of them stroll on this week's place (or a finished one), and across the whole land once it is finished
     const cur = places.findIndex(p => p.status === 'current'), walkI = o.pick && !alive ? (cur >= 0 ? cur : places.findIndex(p => p.status === 'done')) : -1;
     places.forEach((p, i) => {
       const lbl = p.status === 'done' ? p.name : p.status === 'current' ? 'This week · ' + Math.max(0, (p.total || PAIRS) - p.pairs.length) + ' to go' : null;
-      const g = this.island(p, { label: o.labels !== false ? lbl : null, q: true, pick: o.pick && p.status !== 'locked' ? { type: 'place', pi: i } : null, lockK: 1.6, walk: i === walkI, walkH: 80 });
+      const g = this.island(p, { label: o.labels !== false ? lbl : null, q: true, pick: o.pick && p.status !== 'locked' ? { type: 'place', pi: i } : null, lockPick: { type: 'lock', mi: o.mi, pi: i }, lockK: 1.6, walk: i === walkI, walkH: 80 });
       g.position.set(MPOS[i][0], 0, MPOS[i][1]); G.add(g);
     });
     if (alive) { this.land(G, o.lite, o.kind); if (o.pick) this.mapWalkers(o.kind || '', G, 74); }
@@ -799,7 +804,7 @@ export class MapScene {
     });
   }
 
-  private dream(cfg: DreamMapCfg, o: { lite?: boolean } = {}) {
+  private dream(cfg: DreamMapCfg, o: { lite?: boolean; mi?: number } = {}) {
     const G = new THREE.Group(), R = rnd(5), rooms = cfg.dream.rooms, hs = cfg.dream.house, fr = cfg.fresh || null, lite = !!o.lite, t0 = now();
     const dot = this.dot ||= new THREE.SphereGeometry(7, 10, 8), disc = this.disc ||= new THREE.CircleGeometry(1, 24);
     const grow = (s: THREE.Object3D, d = 0.4) => this.growIn(s, t0 + d + R() * 0.6);
@@ -815,7 +820,7 @@ export class MapScene {
       const def = ROOMS[key], rm = rooms[key], n = rm?.n || 0, st = rm?.status || 'locked', isF = (j: number) => !!fr && fr.room === key && fr.i === j;
       const rx0 = def.x - def.w / 2, rx1 = def.x + def.w / 2, rz0 = def.z - def.d / 2, rz1 = def.z + def.d / 2;
       if (n === 0) dash(rx0 + 10, rz0 + 10, rx1 - 10, rz1 - 10, st === 'locked' ? '#B5AA94' : INK);
-      if (st === 'locked') { const l = this.lockSprite(1.4); l.position.set(def.x, 70, def.z); G.add(l); return; }
+      if (st === 'locked') { const l = this.lockSprite(1.4, { type: 'lock', mi: o.mi, room: key as RoomKey }); l.position.set(def.x, 70, def.z); G.add(l); return; }
       // an invisible pad over the room, so it can be tapped from above
       if (!lite) { const pad = new THREE.Mesh(this.own(new THREE.BoxGeometry(def.w, 6, def.d)), this.own(new THREE.MeshBasicMaterial({ visible: false }))); pad.position.set(def.x, 3, def.z); pad.userData.pick = { type: 'room', room: key }; G.add(pad); this.pickables.push(pad); }
       if (n === 0 && !(hs.status === 'current' && key !== 'park')) { const q = this.sprite('?', { size: 150, color: '#8E7FD0' }); q.position.set(def.x, 150, key === 'park' ? def.z + 110 : def.z); G.add(q); this.qs.push(q); this.huds.push(q); }
@@ -914,12 +919,9 @@ export class MapScene {
 
   private board(m: MonthCfg, i: number) {
     const B = new THREE.Group(); B.userData.pick = { type: 'month', mi: i };
-    const cream = this.toon('#FFF3D1', m.current ? 0.35 : 1), edge = this.toon('#E6CF92', m.current ? 0.3 : 1);
-    const slab = new THREE.Mesh(this.slabGeo ||= new THREE.BoxGeometry(1700, 28, 1300), [edge, edge, cream, edge, edge, edge]); slab.position.y = -14; B.add(slab);
-    const eg = this.own(new THREE.EdgesGeometry(this.slabGeo));
-    if (m.current) { const e = new THREE.LineSegments(eg, this.own(new THREE.LineDashedMaterial({ color: INK, dashSize: 24, gapSize: 18 }))); e.computeLineDistances(); e.position.y = -14; B.add(e); }
-    else { const e = new THREE.LineSegments(eg, this.own(new THREE.LineBasicMaterial({ color: INK }))); e.position.y = -14; B.add(e); }
-    const mg = m.dream ? this.dream({ mode: 'dream', key: '', dream: m.dream }, { lite: true }) : this.month(m.places, { labels: false, lite: true });
+    // each map stands on its own (no platform under it); an invisible area around it still takes the tap
+    const hit = new THREE.Mesh(this.slabGeo ||= new THREE.BoxGeometry(1700, 28, 1300), this.own(new THREE.MeshBasicMaterial({ visible: false }))); hit.position.y = -14; B.add(hit);
+    const mg = m.dream ? this.dream({ mode: 'dream', key: '', dream: m.dream }, { lite: true, mi: i }) : this.month(m.places, { labels: false, lite: true, mi: i });
     if (m.dream) mg.userData.alive = true;
     mg.scale.setScalar(0.85); mg.position.y = mg.userData.alive ? 72 : 34; B.add(mg);
     if (m.current) mg.traverse(o => { const mesh = o as THREE.Mesh; if (mesh.isMesh) { const fix = (x: THREE.Material) => { const c = this.own(x.clone()); c.transparent = true; c.opacity = Math.min(x.opacity, 0.5); c.depthWrite = false; return c; }; mesh.material = Array.isArray(mesh.material) ? mesh.material.map(fix) : fix(mesh.material); } });

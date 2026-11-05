@@ -116,8 +116,20 @@ export function MapView({ route: route0, go, dest }: { route: MapRoute; go: Go; 
   const who = (w: 'd' | 'a') => w === 'd' ? { name: s.names.dadi, face: s.faces.dadi, color: DADI } : { name: s.names.child, face: s.faces.child, color: CHILD };
   const me = pov && who(pov), other = pov && who(pov === 'd' ? 'a' : 'd');
 
+  // tapping a padlock: how many more prompts until that place opens
+  const [lockMsg, setLockMsg] = useState<{ text: string; k: number } | null>(null);
+  useEffect(() => { if (!lockMsg) return; const t = setTimeout(() => setLockMsg(null), 3200); return () => clearTimeout(t); }, [lockMsg]);
+
   const onPick = useMemo(() => (pk: Pick) => {
     const st = getState();
+    if (pk.type === 'lock') {
+      const mi = pk.mi ?? (route.screen === 'interior' ? route.mi : 0), m = st.months[mi];
+      const idx = m ? (pk.room ? m.places.findIndex(p => p.room === pk.room) : pk.pi ?? -1) : -1;
+      if (idx < 0) return;
+      const left = m.places.slice(0, idx).reduce((n, p) => n + (p.status === 'done' ? 0 : Math.max(0, placeTotal(p) - p.pairs.length)), 0);
+      if (left > 0) setLockMsg(v => ({ text: `${left} more ${left === 1 ? 'prompt' : 'prompts'} until you unlock this!`, k: (v?.k || 0) + 1 }));
+      return;
+    }
     if (pk.type === 'month') go({ screen: 'interior', mi: pk.mi });
     else if (route.screen === 'interior') {
       const m = st.months[route.mi], pl = pk.type === 'room' ? m?.places.find(p => p.room === pk.room) : m?.places[pk.pi];
@@ -158,6 +170,7 @@ export function MapView({ route: route0, go, dest }: { route: MapRoute; go: Go; 
       )}
       {!pov && title && <div className="map-title"><div className="t">{title}</div>{hint && <div className="h">{hint}</div>}</div>}
       {note && !pov && <div className="build-note" role="status">{note}</div>}
+      {lockMsg && !pov && !note && <div key={lockMsg.k} className="build-note lock-note" role="status">{lockMsg.text}</div>}
       {povAvail && !pov && (
         <div className="pov-chips">
           <div className="k">Walk around as</div>
