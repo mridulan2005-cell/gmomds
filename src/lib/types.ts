@@ -30,17 +30,20 @@ export interface Drawing {
   hasArt?: boolean;
 }
 
-export interface Pair { promptId: string; prompt: string; dadi: string; child: string; slot: number; together?: boolean }
+/** `single`: one shared drawing (the dream house), so dadi and child are the same drawing */
+export interface Pair { promptId: string; prompt: string; dadi: string; child: string; slot: number; together?: boolean; single?: boolean; title?: string }
 export type PlaceStatus = 'locked' | 'current' | 'done';
 export interface Place {
   id: string; index: number; name: string; theme: string; shape: 'A' | 'B' | 'C' | 'D'; color: string; status: PlaceStatus; pairs: Pair[];
   /** pairs that finish this place (PAIRS when missing) */
   total?: number;
   /** a curated place's prompts, in order (else prompts are made from the theme and their loves) */
-  prompts?: { text: string; together?: boolean }[];
+  prompts?: { text: string; together?: boolean; title?: string; rule?: string; single?: boolean }[];
+  /** a room of the Dream House (it is built as one house, not as an island) */
+  room?: 'lr' | 'kitchen' | 'house' | 'park';
 }
-export interface Month { id: string; name: string; places: Place[] }
-export interface Prompt { id: string; text: string; date: string; placeId: string; together?: boolean }
+export interface Month { id: string; name: string; places: Place[]; /** the Dream House: its places are rooms of one house */ dream?: boolean }
+export interface Prompt { id: string; text: string; date: string; placeId: string; together?: boolean; title?: string; rule?: string; single?: boolean }
 
 export interface AppState {
   version: 1;

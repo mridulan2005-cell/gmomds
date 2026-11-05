@@ -14,12 +14,30 @@ export const today = () => { const d = new Date(); return `${d.getFullYear()}-${
 function newMonth(n: number): Month {
   const def = mapDef(n);
   return {
-    id: uid(), name: def.name,
+    id: uid(), name: def.name, ...(def.dream ? { dream: true } : {}),
     places: def.places.map((t, i): Place => ({
       id: uid(), index: i, name: t.name, theme: t.theme, shape: t.shape, color: t.color, status: i === 0 ? 'current' : 'locked', pairs: [],
-      ...(t.prompts ? { total: t.prompts.length, prompts: t.prompts } : {}),
+      ...(t.prompts ? { total: t.prompts.length, prompts: t.prompts } : {}), ...(t.room ? { room: t.room } : {}),
     })),
   };
+}
+
+/**
+ * A Dream House saved before it was built as one house (Living Room, Kitchen, Park): give it its rooms, the new prompts
+ * and the house itself between the Kitchen and the Park. Drawings already made stay in their room.
+ */
+function upgradeDream(m: Month, n: number) {
+  if (m.dream || m.name !== 'Dream House') return;
+  const fresh = newMonth(n);
+  let open = true;
+  fresh.places.forEach(p => {
+    const old = m.places.find(o => o.name === p.name);
+    if (old) { p.id = old.id; p.pairs = old.pairs.slice(0, placeTotal(p)); }
+    const full = p.pairs.length >= placeTotal(p) && (!old || old.status === 'done');
+    p.status = full && open ? 'done' : open ? 'current' : 'locked';
+    if (p.status !== 'done') open = false;
+  });
+  m.places = fresh.places; m.dream = true;
 }
 /** Pairs that finish a place. */
 export const placeTotal = (p: Place) => p.total || PAIRS;
@@ -67,6 +85,8 @@ export async function load() {
       state.months.forEach((m, i) => { if (months.has(m.name)) m.name = MAPS[(state.months.length - 1 - i) % MAPS.length].name; });
       // the old placeholder names become Sunita and Aarav
       if (state.names.dadi === 'Dadi' && state.names.child === 'Anu') { state.names = { dadi: 'Sunita', child: 'Aarav' }; persist(); }
+      // the Dream House is now built as one house with rooms
+      state.months.forEach((m, i) => { if (!m.dream && m.name === 'Dream House') { upgradeDream(m, state.months.length - 1 - i); if (i === 0) state.prompt = null; persist(); } });
     }
   } catch (e) { console.warn('load failed', e); }
   loaded = true; emit();
@@ -111,7 +131,8 @@ export async function ensurePrompt(force = false) {
   // a curated place has its own prompts, in order
   const own = place.prompts?.[place.pairs.length];
   if (own) {
-    update(st => { st.prompt = { id: uid(), text: own.text, date: today(), placeId: place.id, ...(own.together ? { together: true } : {}) }; st.recentPrompts = [...st.recentPrompts, own.text].slice(-20); st.scanning = null; });
+    const { text: _t, ...extra } = own;
+    update(st => { st.prompt = { id: uid(), text: own.text, date: today(), placeId: place.id, ...extra }; st.recentPrompts = [...st.recentPrompts, own.text].slice(-20); st.scanning = null; });
     return;
   }
   promptBusy = true;
@@ -140,11 +161,13 @@ export function addDrawing(d: Drawing) {
   update(s => {
     s.drawings[d.id] = d;
     if (!s.prompt) return;
-    if (d.personId === 'dadi') { s.scanning = { promptId: s.prompt.id, dadi: d.id }; return; }
+    // one shared drawing (the dream house) is the whole pair; otherwise Dadi's scan waits for the grandchild's
+    const single = !!s.prompt.single;
+    if (d.personId === 'dadi' && !single) { s.scanning = { promptId: s.prompt.id, dadi: d.id }; return; }
     // the grandchild's scan completes the pair: place it on the island
-    const dadiId = s.scanning?.dadi; const place = s.months[0].places.find(p => p.status === 'current');
+    const dadiId = single ? d.id : s.scanning?.dadi; const place = s.months[0].places.find(p => p.status === 'current');
     if (!dadiId || !place) return;
-    const pair: Pair = { promptId: s.prompt.id, prompt: s.prompt.text, dadi: dadiId, child: d.id, slot: place.pairs.length, ...(s.prompt.together ? { together: true } : {}) };
+    const pair: Pair = { promptId: s.prompt.id, prompt: s.prompt.text, dadi: dadiId, child: d.id, slot: place.pairs.length, ...pairExtra(s.prompt) };
     place.pairs.push(pair); s.scanning = null; s.lastFresh = { placeId: place.id, slot: pair.slot }; s.doneAt = Date.now();
   });
 }
@@ -157,6 +180,7 @@ export function replaceDrawing(oldId: string, d: Drawing) {
   });
   for (const k of ['scan:' + oldId, 'art:' + oldId]) { const u = urlCache.get(k); if (u) URL.revokeObjectURL(u); urlCache.delete(k); void del(k).catch(() => {}); }
 }
+const pairExtra = (p: { together?: boolean; single?: boolean; title?: string }) => ({ ...(p.together ? { together: true } : {}), ...(p.single ? { single: true } : {}), ...(p.title ? { title: p.title } : {}) });
 export function updateDrawing(id: string, patch: Partial<Drawing>) { update(s => { if (s.drawings[id]) Object.assign(s.drawings[id], patch); }); }
 export function clearFresh() { if (state.lastFresh) update(s => { s.lastFresh = null; }); }
 
@@ -189,9 +213,11 @@ export function addSamplePairs(n: number) {
   update(s => {
     const place = s.months[0].places.find(p => p.status === 'current'); if (!place) return;
     for (let k = 0; k < n && place.pairs.length < placeTotal(place); k++) {
-      const pid = uid(), mk = (who: PersonId) => sampleDrawing(s, who, pid, kinds[Math.floor(Math.random() * kinds.length)]);
-      const a = mk('dadi'), b = mk('child'), own = place.prompts?.[place.pairs.length];
-      place.pairs.push({ promptId: pid, prompt: own ? own.text : 'Sample: ' + a.kind + ' & ' + b.kind, dadi: a.id, child: b.id, slot: place.pairs.length, ...(own?.together ? { together: true } : {}) });
+      const pid = uid(), own = place.prompts?.[place.pairs.length], mk = (who: PersonId) => sampleDrawing(s, who, pid, own?.single ? 'home' : kinds[Math.floor(Math.random() * kinds.length)]);
+      // a shared drawing is one drawing; the sample dream house is the prototype's drawing of one
+      const a = mk('dadi'), b = own?.single ? a : mk('child');
+      if (own?.single) a.label = 'our dream house';
+      place.pairs.push({ promptId: pid, prompt: own ? own.text : 'Sample: ' + a.kind + ' & ' + b.kind, dadi: a.id, child: b.id, slot: place.pairs.length, ...(own ? pairExtra(own) : {}) });
     }
     // today's prompt moves on with them
     if (place.prompts) { s.prompt = null; s.scanning = null; }

@@ -10,6 +10,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js';
 import type { Motion, Spot } from '../lib/types';
 import { PAIRS } from '../lib/content';
+import { loadHouse, type HouseShape } from './house';
 
 export interface DrawCfg {
   id: string; f: string[]; s: string[]; fc?: (string | null)[]; fill: string; owner: 'd' | 'a'; motion: Motion; place: Spot;
@@ -21,15 +22,29 @@ export interface DrawCfg {
 export interface PlaceCfg { name: string; shape: string; color: string; theme: string; status: 'locked' | 'current' | 'done'; pairs: [DrawCfg, DrawCfg][]; /** pairs that finish it (PAIRS when missing) */ total?: number }
 /** How far a place is built (0…4 scenery stages) after n of its total pairs. */
 const stageOf = (n: number, total: number) => (n >= total ? 4 : Math.max(0, Math.min(4, Math.round((n * 4) / total))));
-export interface MonthCfg { name: string; current: boolean; places: PlaceCfg[] }
+export interface MonthCfg { name: string; current: boolean; places: PlaceCfg[]; dream?: DreamCfg }
+export type RoomKey = 'lr' | 'kitchen' | 'park';
+export interface RoomCfg { status: 'locked' | 'current' | 'done'; n: number; pairs: [DrawCfg | null, DrawCfg | null][] }
+/** The Dream House: rooms that build up with their prompts, and the house rebuilt from their drawing of it. */
+export interface DreamCfg {
+  rooms: Partial<Record<RoomKey, RoomCfg>>;
+  /** id: a scanned drawing (its image comes from artLoader); url: a sample picture */
+  house: { status: 'locked' | 'current' | 'done'; id?: string; url?: string };
+  /** the whole map is finished: it comes alive */
+  alive?: boolean;
+}
+export type DreamFocus = 'all' | 'lr' | 'kitchen' | 'house' | 'park';
 /** the caricatures they drew of each other (image URLs): d = Dadi, a = the grandchild */
 export interface Walkers { d: string; a: string }
 export type MapConfig = (
   | { mode: 'place'; key: string; place: PlaceCfg; fresh?: number; fade?: boolean }
   | { mode: 'month'; key: string; places: PlaceCfg[]; kind?: string }
   | { mode: 'stack'; key: string; months: MonthCfg[] }
+  /** fresh: the newest drawing(s), which rise in (i = the prompt in that room); peek: the roof is lifted off */
+  | { mode: 'dream'; key: string; dream: DreamCfg; focus?: DreamFocus; fresh?: { room: RoomKey | 'house'; i: number } | null; peek?: boolean }
 ) & { walkers?: Walkers; names?: { d: string; a: string } };
-export type Pick = { type: 'place'; pi: number } | { type: 'month'; mi: number };
+type DreamMapCfg = Extract<MapConfig, { mode: 'dream' }>;
+export type Pick = { type: 'place'; pi: number } | { type: 'month'; mi: number } | { type: 'room'; room: RoomKey | 'house' };
 /** whose eyes the map is seen through: d = Dadi, a = the grandchild, null = the usual view from above */
 export type Pov = 'd' | 'a' | null;
 
@@ -41,6 +56,17 @@ const MPOS = [[-380, -250], [330, -180], [-330, 210], [380, 280]];
 // A finished map comes alive: its four islands sit on one piece of land with a river, a pond, hills, trees and sheep.
 const LAND = [[-700, -380], [-560, -480], [-250, -440], [-120, -510], [120, -450], [300, -480], [520, -430], [720, -300], [700, -80], [780, 60], [720, 200], [760, 420], [570, 560], [300, 530], [100, 580], [-120, 500], [-360, 540], [-610, 480], [-740, 300], [-680, 120], [-780, -60], [-710, -200]];
 const RIV = [[-30, -620], [10, -330], [-40, -60], [30, 180], [-20, 420], [10, 660]];
+/**
+ * Hand-drawn scenery for finished maps (public/scenery): image aspect (w/h), where its foot is (cx, cy as
+ * fractions from the left and from the bottom of the image) and how much of the image's height is drawing.
+ */
+const PIC: Record<string, { a: number; cx: number; cy: number; vis: number }> = {
+  'tree-leafy': { a: 249 / 529, cx: 0.41, cy: 0.02, vis: 0.96 }, 'tree-pine': { a: 213 / 529, cx: 0.57, cy: 0.066, vis: 0.74 },
+  'tree-bushy': { a: 213 / 529, cx: 0.49, cy: 0.093, vis: 0.75 }, 'tree-palms': { a: 297 / 529, cx: 0.5, cy: 0.21, vis: 0.76 },
+  'rocks-pair': { a: 648 / 258, cx: 0.5, cy: 0.21, vis: 0.79 }, 'rock-tall': { a: 459 / 276, cx: 0.5, cy: 0.07, vis: 0.79 },
+  dog: { a: 327 / 261, cx: 0.45, cy: 0.04, vis: 0.96 }, cat: { a: 398 / 261, cx: 0.52, cy: 0.0, vis: 0.86 },
+  'bird-green': { a: 413 / 160, cx: 0.48, cy: 0.5, vis: 0.7 }, 'birds-pair': { a: 660 / 241, cx: 0.5, cy: 0.5, vis: 0.93 },
+};
 const MTN = [[655, -200, 80, 150], [-655, -10, 64, 120], [580, -370, 58, 105]];
 const POND = [575, 60, 52];
 function onLand(x: number, z: number) { let c = false; for (let i = 0, j = LAND.length - 1; i < LAND.length; j = i++) { const [xi, zi] = LAND[i], [xj, zj] = LAND[j]; if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) c = !c; } return c; }
@@ -49,6 +75,42 @@ function terrain(x: number, z: number) { let y = -26; for (const [mx, mz, r, hh]
 const inRing = (poly: number[][], x: number, z: number) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, zi] = poly[i], [xj, zj] = poly[j]; if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) c = !c; } return c; };
 /** what they say when you tap something while walking around */
 const SAY: Record<string, string> = { cat: 'Meow!', bird: 'Tweet tweet!', fish: 'Splash!', mango: 'Yum, a mango!', flower: 'Mmm, smells lovely!', tree: 'What a big tree!', sun: 'So warm!', moon: 'Hello, moon!', diya: 'So bright!', kite: 'Up it goes!', bell: 'Ding ding!', drum: 'Dum dum!', note: 'La la la!', boat: 'Ahoy!', waves: 'Whoosh!', chai: 'Mmm, chai!' };
+// ---- the Dream House layout: the house's footprint, its rooms (their furniture and where the drawings go), the park ----
+/** hand-drawn furniture (public/dream): image size, for its aspect */
+const DRW: Record<string, [number, number]> = { sofa: [300, 180], rug: [300, 180], lamp: [120, 300], window: [220, 220], shelf: [200, 260], sidetable: [140, 150], plant: [120, 210], frame: [150, 120], stove: [320, 210], fridge: [140, 300], table: [320, 200], bench: [280, 160], swing: [260, 260], lamppost: [80, 300], play: [400, 281] };
+/** hand-drawn creatures, grass and trees (public/nature): image size */
+const NAT: Record<string, [number, number]> = { bee: [230, 203], beetle: [169, 174], bfly1: [184, 204], bfly2: [287, 239], bfly3: [243, 227], dfly1: [293, 257], dfly2: [298, 222], fish1: [261, 252], fish2: [458, 168], fish3: [339, 190], fish4: [323, 298], fish5: [316, 255], fish6: [304, 259], grass1: [221, 131], grass2: [189, 178], grass3: [105, 151], grass4: [105, 140], grass5: [84, 110], grass6: [124, 105], grass7: [146, 103], grass8: [128, 89], grass9: [91, 101], ladybug: [199, 206], tree1: [297, 529], tree2: [249, 529], tree3: [213, 529], tree4: [213, 529] };
+/** which way each fish faces in its picture */
+const FACE: Record<string, number> = { fish1: -1, fish2: -1, fish3: 1, fish4: 1, fish5: -1, fish6: 1 };
+const GRASS = ['grass1', 'grass2', 'grass3', 'grass4', 'grass5', 'grass6', 'grass7', 'grass8', 'grass9'], TREES = ['tree1', 'tree2', 'tree3', 'tree4'];
+/** the house's walls: x from HX0 to HX1, z from HZ0 (back) to HZ1 (front, with the door) */
+const HX0 = -380, HX1 = 380, HZ0 = -330, HZ1 = 10;
+type Furn = [string, number, number, number, number, number?, number?]; // picture, from which prompt (1…4), x, z, height, y, flat
+const ROOMS: Record<RoomKey, { x: number; z: number; w: number; d: number; floor?: 'wood' | 'tile'; furn: Furn[]; slots: [number, number, number][][] }> = {
+  lr: { x: -190, z: -160, w: 380, d: 340, floor: 'wood',
+    furn: [['rug', 1, -190, -150, 250, 0, 1], ['sofa', 1, -200, -268, 115], ['lamp', 1, -345, -275, 150], ['sidetable', 1, -330, -170, 62], ['window', 2, -190, -326, 120, 60], ['shelf', 3, -70, -318, 170], ['plant', 4, -40, -40, 100], ['frame', 4, -320, -326, 55, 175]],
+    // 1: on the side table and the floor, 2: on the window sill (pets), 3: on top of the shelf, 4: around the room
+    slots: [[[-336, -170, 62], [-290, -110, 0]], [[-225, -305, 62], [-155, -305, 62]], [[-95, -305, 170], [-45, -305, 170]], [[-250, -60, 0], [-140, -80, 0]]] },
+  kitchen: { x: 190, z: -160, w: 380, d: 340, floor: 'tile',
+    furn: [['stove', 1, 150, -318, 125], ['window', 2, 60, -326, 105, 150], ['fridge', 3, 330, -300, 190], ['table', 4, 190, -140, 100], ['plant', 4, 355, -40, 90]],
+    // 1 and 2: on the counter, 3: by the fridge, 4: on the dining table
+    slots: [[[80, -304, 90], [120, -304, 90]], [[225, -304, 90], [252, -304, 90]], [[270, -230, 0], [340, -200, 0]], [[140, -128, 52], [240, -128, 52]]] },
+  park: { x: 0, z: 230, w: 1180, d: 330,
+    furn: [['bench', 1, -300, 150, 80], ['play', 2, -60, 270, 120], ['swing', 2, 130, 300, 140], ['lamppost', 3, -470, 120, 150]],
+    // 3: up in the air, 4: by the bridge to the fantasy island
+    slots: [[[-390, 200, 0], [-240, 210, 0]], [[-150, 330, 0], [20, 335, 0]], [[140, 200, 150], [280, 170, 170]], [[900, 200, 92], [990, 250, 92]]] },
+};
+/** where the camera looks from for each part of the Dream House: [target, camera position] */
+const DREAM_VIEW: Record<DreamFocus, [number[], number[]]> = {
+  // the whole map takes in the fantasy island on the right; the park, its bridge
+  all: [[190, 110, 0], [190, 1800, 2250]], lr: [[-190, 60, -160], [-190, 780, 640]], kitchen: [[190, 60, -160], [190, 780, 640]],
+  park: [[260, 0, 220], [260, 1150, 1550]], house: [[0, 330, -120], [0, 1150, 2350]],
+};
+/** their house drawings, read once */
+const HOUSES = new Map<string, HouseShape>();
+interface DoorState { piv: THREE.Group; x0: number; x1: number; cx: number; open: number; forced: number | null; hl: THREE.Group; tag: THREE.Sprite }
+type Critter = { s: THREE.Sprite; kind: 'fly' | 'fish' | 'crawl' | 'sway'; [k: string]: any };
+
 function riverX(z: number) { for (let i = 1; i < RIV.length; i++) if (z <= RIV[i][1]) { const [x0, z0] = RIV[i - 1], [x1, z1] = RIV[i]; return x0 + ((x1 - x0) * (z - z0)) / (z1 - z0); } return RIV[RIV.length - 1][0]; }
 export const SHAPES: Record<string, string> = {
   A: 'M20 120 Q40 60 120 70 Q200 80 250 50 Q330 20 400 60 Q470 90 460 160 Q450 230 370 225 Q290 220 230 245 Q140 270 70 235 Q10 200 20 120 Z',
@@ -144,7 +206,8 @@ export function drawingGeo(d: DrawCfg): DrawGeo {
   GEO_CACHE.set(d.id, out); return out;
 }
 
-type Stop = { x: number; z: number; y?: number; p?: number; act?: 'sniff' | 'look' | 'wave' | null; f?: 1 | -1 };
+/** door: this stop is at the house's door (its x moves to wherever the door is in their drawing) */
+type Stop = { x: number; z: number; y?: number; p?: number; act?: 'sniff' | 'look' | 'wave' | null; f?: 1 | -1; door?: boolean };
 /** ground height where they may stand (in the walker's group), or null where they can't */
 type Ground = (x: number, z: number) => number | null;
 interface Walker {
@@ -186,6 +249,9 @@ export class MapScene {
   private joy = { x: 0, y: 0 }; private keys = new Set<string>(); private joyEl: HTMLDivElement; private lt = 0;
   private eye = new THREE.Vector3(); private look = new THREE.Vector3(); private dc = new THREE.PerspectiveCamera();
   private faceTex = new Map<string, THREE.Texture>();
+  private pets: THREE.Object3D[] = [];
+  private critters: Critter[] = [];
+  private door: DoorState | null = null;
   private landGeo?: Record<string, any>;
   private tv = new THREE.Vector3();
   private pickables: THREE.Object3D[] = [];
@@ -489,7 +555,7 @@ export class MapScene {
       const g = this.island(p, { label: o.labels !== false ? lbl : null, q: true, pick: o.pick && p.status !== 'locked' ? { type: 'place', pi: i } : null, lockK: 1.6, walk: i === walkI, walkH: 80 });
       g.position.set(MPOS[i][0], 0, MPOS[i][1]); G.add(g);
     });
-    if (alive) { this.land(G, o.lite); if (o.pick) this.mapWalkers(o.kind || '', G, 74); }
+    if (alive) { this.land(G, o.lite, o.kind); if (o.pick) this.mapWalkers(o.kind || '', G, 74); }
     const pts = [[-760, -420], ...MPOS, [760, 520]].map(([x, z]) => new THREE.Vector3(x, alive ? -19 : -10, z));
     const curve = new THREE.CatmullRomCurve3(pts), n = Math.round(curve.getLength() / 34), dm = this.toon('#FFC93C');
     curve.getSpacedPoints(n).forEach(pt => { if (alive && !onLand(pt.x, pt.z)) return; const s = new THREE.Mesh(this.dot ||= new THREE.SphereGeometry(7, 10, 8), dm); s.position.copy(pt); G.add(s); });
@@ -499,18 +565,18 @@ export class MapScene {
   private edge(pts: THREE.Vector3[], r: number) { const cp = new THREE.CurvePath<THREE.Vector3>(); for (let i = 0; i < pts.length; i++) cp.add(new THREE.LineCurve3(pts[i], pts[(i + 1) % pts.length])); return new THREE.TubeGeometry(cp as any, pts.length * 6, r, 5, false); }
 
   /** The land a finished map stands on (lite: the small copy in the stack, without sea, clouds and compass). */
-  private land(G: THREE.Group, lite = false) {
+  private land(G: THREE.Group, lite = false, kind = '') {
+    const palms = /seaside|beach|desert|island/i.test(kind);
     const c = this.landGeo ||= (() => {
       const sh = new THREE.Shape(); LAND.forEach(([x, z], i) => (i ? sh.lineTo(x, z) : sh.moveTo(x, z))); sh.closePath();
       const land = new THREE.ExtrudeGeometry(sh, { depth: 44, bevelEnabled: true, bevelThickness: 4, bevelSize: 6, bevelSegments: 1 }); land.rotateX(Math.PI / 2); land.translate(0, -30, 0);
       const river = new THREE.CatmullRomCurve3(RIV.map(([x, z]) => new THREE.Vector3(x, 0, z)));
       const flow = new THREE.CapsuleGeometry(2.6, 16, 3, 6); flow.rotateX(Math.PI / 2);
-      const trunk = new THREE.CylinderGeometry(3.5, 4.5, 22, 6); trunk.translate(0, 11, 0);
       const ring = new THREE.TorusGeometry(1, 0.05, 6, 48); ring.rotateX(Math.PI / 2);
       return {
         land, top: this.edge(LAND.map(([x, z]) => new THREE.Vector3(x, -25.4, z)), 2.4), bot: this.edge(LAND.map(([x, z]) => new THREE.Vector3(x, -78, z)), 2),
-        river, riverGeo: new THREE.TubeGeometry(river, 120, 26, 8, false), flow, trunk, ring,
-        crown: new THREE.IcosahedronGeometry(19, 0), pine: new THREE.ConeGeometry(16, 38, 7), puff: new THREE.IcosahedronGeometry(1, 1), disc: new THREE.CircleGeometry(1, 24),
+        river, riverGeo: new THREE.TubeGeometry(river, 120, 26, 8, false), flow, ring,
+        puff: new THREE.IcosahedronGeometry(1, 1), disc: new THREE.CircleGeometry(1, 24),
         mtn: MTN.map(([, , r, h]) => [new THREE.ConeGeometry(r, h, 7), new THREE.ConeGeometry(r * 0.4, h * 0.4, 7)]),
       };
     })();
@@ -526,14 +592,18 @@ export class MapScene {
       const snow = new THREE.Mesh(c.mtn[i][1], this.toon('#ffffff')); snow.position.set(x, -26 + h - h * 0.2 + 0.5, z); G.add(snow);
     });
     const R = rnd(11), clear = (x: number, z: number, pad: number) => onLand(x, z) && !MPOS.some(([cx, cz]) => Math.abs(x - cx) < 250 + pad && Math.abs(z - cz) < 150 + pad) && Math.abs(x - riverX(z)) > 50 && !MTN.some(([mx, mz, mr]) => Math.hypot(x - mx, z - mz) < mr + 24) && Math.hypot(x - POND[0], z - POND[1]) > POND[2] + 24;
-    const greens = ['#4FAE3E', '#6CC24A', '#3E9B48', '#86CF5A'], fall = ['#F29B38', '#F5C84C', '#E8743B'];
     let placed = 0, tries = 0;
     while (placed < (lite ? 30 : 48) && tries < 3000) {
       tries++; const x = -780 + R() * 1560, z = -510 + R() * 1090; if (!clear(x, z, 12)) continue; placed++;
-      const tg = new THREE.Group(); tg.position.set(x, -26, z); tg.scale.setScalar(0.8 + R() * 0.5);
-      if ((x > 380 && z < -150) || R() < 0.25) { const a = new THREE.Mesh(c.pine, this.toon('#2F8F4E')); a.position.y = 22; const b = new THREE.Mesh(c.pine, this.toon('#3FA35A')); b.position.y = 40; b.scale.setScalar(0.75); tg.add(a, b); }
-      else { tg.add(new THREE.Mesh(c.trunk, this.toon('#8A5A3B'))); const pal = x < -420 ? fall : greens; const cr = new THREE.Mesh(c.crown, this.toon(pal[Math.floor(R() * pal.length)])); cr.position.y = 34; tg.add(cr); }
-      G.add(tg); this.sway.push({ o: tg, ph: R() * 6 });
+      // the hand-drawn trees: pines up by the hills, bushy ones in the west, palms by the sea, leafy ones elsewhere
+      const name = (x > 380 && z < -150) || R() < 0.2 ? 'tree-pine' : x < -420 ? 'tree-bushy' : palms && R() < 0.7 ? 'tree-palms' : 'tree-leafy';
+      const t = this.pic(name, (name === 'tree-palms' ? 92 : 70) * (0.8 + R() * 0.45)); t.position.set(x, -26, z); G.add(t);
+    }
+    // a few rocks in the grass
+    let rocks = 0; tries = 0;
+    while (rocks < (lite ? 3 : 6) && tries < 2000) {
+      tries++; const x = -760 + R() * 1520, z = -500 + R() * 1060; if (!clear(x, z, 26)) continue; rocks++;
+      const r = this.pic(rocks % 2 ? 'rocks-pair' : 'rock-tall', 26 + R() * 10); r.position.set(x, -26, z); G.add(r);
     }
     let flock = 0; tries = 0;
     while (flock < 5 && tries < 2000) {
@@ -543,11 +613,20 @@ export class MapScene {
       this.sheep.push({ o: s, cx: x, cz: z, ph: R() * 6 });
     }
     if (lite) return;
+    // the dog trots about by the river; the cat naps by the pond (tap them while walking around)
+    const dog = this.pic('dog', 34); dog.userData.say = 'Woof woof!'; const dg = new THREE.Group(); dg.add(dog); G.add(dg);
+    this.sheep.push({ o: dg, cx: 110, cz: 260, ph: 1.3 }); this.pets.push(dog);
+    const cat = this.pic('cat', 26); cat.userData.say = 'Purrr…'; cat.position.set(POND[0] - POND[2] - 36, -26, POND[1] + 44); G.add(cat); this.pets.push(cat);
     const sea = new THREE.Mesh(c.disc, this.toon('#7FD0C9')); sea.rotation.x = -Math.PI / 2; sea.scale.setScalar(3200); sea.position.y = -82; G.add(sea);
     for (let i = 0; i < 4; i++) {
       const cl = new THREE.Group(); [[0, 0, 30], [30, 6, 24], [-28, 2, 22], [10, 16, 22]].forEach(([dx, dy, r]) => { const p = new THREE.Mesh(c.puff, this.toon('#ffffff')); p.scale.setScalar(r); p.position.set(dx, dy, 0); cl.add(p); });
       const x0 = -900 + i * 470; cl.position.set(x0, 250 + (i % 2) * 50, -360 + i * 240); G.add(cl); this.clouds.push({ o: cl, x0, v: 12 + i * 3 });
     }
+    // birds flying over (they drift with the clouds; the pair is drawn facing left, so it is turned round)
+    ([['birds-pair', 60, 190, -120, 26], ['bird-green', 34, 160, 260, 34]] as const).forEach(([name, h, y, z, v], i) => {
+      const b = this.pic(name, h); if (name === 'birds-pair') b.scale.x *= -1; const g = new THREE.Group(); g.add(b);
+      const x0 = -600 + i * 700; g.position.set(x0, y, z); G.add(g); this.clouds.push({ o: g, x0, v });
+    });
     const cp = this.compass(); cp.position.set(640, 0, 580); G.add(cp); this.huds.push(cp);
   }
 
@@ -558,6 +637,15 @@ export class MapScene {
     x.fillStyle = INK; x.font = '900 34px Urbanist, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('N', 100, 18); x.fillText('S', 100, 188);
     const tex = this.own(new THREE.CanvasTexture(cv)); tex.colorSpace = THREE.SRGBColorSpace;
     const s = new THREE.Sprite(this.own(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }))); s.scale.set(170, 170, 1); return s;
+  }
+
+  /** A hand-drawn picture standing in the scene, always facing the camera; h = height of the drawing itself. */
+  private pic(name: string, h: number) {
+    const P = PIC[name], url = import.meta.env.BASE_URL + 'scenery/' + name + '.png';
+    let tex = this.faceTex.get(url);
+    if (!tex) { tex = new THREE.TextureLoader().load(url); tex.colorSpace = THREE.SRGBColorSpace; this.faceTex.set(url, tex); }
+    const s = new THREE.Sprite(this.own(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, alphaTest: 0.04 })));
+    const H = h / P.vis; s.center.set(P.cx, P.cy); s.scale.set(H * P.a, H, 1); s.renderOrder = 4; s.userData.w = H * P.a; return s;
   }
 
   // ---- the caricatures they drew of each other, walking around ----
@@ -615,6 +703,205 @@ export class MapScene {
     }
   }
 
+  // ---- the Dream House: rooms built up prompt by prompt, then the house rebuilt from their drawing of it ----
+  private tex(url: string) {
+    let t = this.faceTex.get(url);
+    if (!t) { t = new THREE.TextureLoader().load(url); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; this.faceTex.set(url, t); }
+    return t;
+  }
+  /** A piece of hand-drawn furniture or park scenery, standing up (or lying flat, like the rug). */
+  private standee(k: string, h: number, flat = false) {
+    const [w, hh] = DRW[k], url = import.meta.env.BASE_URL + 'dream/' + k + (k === 'play' ? '.png' : '.svg'), W = flat ? h : (h * w) / hh, H = flat ? (h * hh) / w : h;
+    const g = this.own(new THREE.PlaneGeometry(W, H)); if (!flat) g.translate(0, H / 2, 0);
+    const m = new THREE.Mesh(g, this.own(new THREE.MeshBasicMaterial({ map: this.tex(url), transparent: true, alphaTest: 0.3, side: THREE.DoubleSide })));
+    if (flat) m.rotation.x = -Math.PI / 2; const G = new THREE.Group(); G.add(m); return G;
+  }
+  private floorTex(kind: string) {
+    const key = 'floor:' + kind; let t = this.faceTex.get(key); if (t) return t;
+    const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d')!;
+    if (kind === 'tile') { for (let i = 0; i < 8; i++) for (let j = 0; j < 8; j++) { x.fillStyle = (i + j) % 2 ? '#F6EBD6' : '#E3CFAE'; x.fillRect(i * 32, j * 32, 32, 32); } }
+    else { x.fillStyle = '#E9C79A'; x.fillRect(0, 0, 256, 256); x.strokeStyle = '#C99E6A'; x.lineWidth = 3; for (let j = 0; j < 8; j++) { x.beginPath(); x.moveTo(0, j * 32); x.lineTo(256, j * 32); x.stroke(); const o = (j % 2) * 64; for (let i = 0; i < 3; i++) { x.beginPath(); x.moveTo(o + i * 128, j * 32); x.lineTo(o + i * 128, j * 32 + 32); x.stroke(); } } }
+    t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(2, 2); this.faceTex.set(key, t); return t;
+  }
+  private seg(a: number[], b: number[], r: number, col = INK) { return new THREE.Mesh(this.own(new THREE.TubeGeometry(new THREE.LineCurve3(new THREE.Vector3(a[0], a[1], a[2]), new THREE.Vector3(b[0], b[1], b[2])), 1, r, 5, false)), this.basic(col)); }
+  /** A hand-drawn creature, grass or tree (public/nature), always facing the camera. */
+  private npic(k: string, h: number, cy = 0) {
+    const [w, hh] = NAT[k], s = new THREE.Sprite(this.own(new THREE.SpriteMaterial({ map: this.tex(import.meta.env.BASE_URL + 'nature/' + k + '.png'), transparent: true, alphaTest: 0.12 })));
+    s.center.set(0.5, cy); const sw = (h * w) / hh; s.scale.set(sw, h, 1); s.userData.w = sw; return s;
+  }
+  private flyer(G: THREE.Group, k: string, x: number, z: number, y: number, o: { size?: number; ph?: number; r?: number; at?: number }) { const s = this.npic(k, o.size || 22, 0.5); G.add(s); this.critters.push({ s, kind: 'fly', cx: x, cz: z, y0: y, ph: o.ph || 0, r: o.r || 30, flap: k.startsWith('bfly'), at: o.at || 0 }); }
+  private fishAt(G: THREE.Group, k: string, x: number, z: number, y: number, dx: number, dz: number, o: { size?: number; span?: number; H?: number; ph?: number; per?: number }) {
+    const s = this.npic(k, o.size || 20, 0.5), L = Math.hypot(dx, dz) || 1; s.visible = false; G.add(s);
+    this.critters.push({ s, kind: 'fish', x0: x, z0: z, y0: y, dx: dx / L, dz: dz / L, span: o.span || 40, H: o.H || 32, ph: o.ph || 0, per: o.per || 4, face: FACE[k] || 1, at: 0 });
+  }
+
+  /** The house from their drawing: the drawing is its front, walls and roof take its colours, the door swings open. */
+  private buildHouse(HG: THREE.Group, d: HouseShape, cfg: DreamMapCfg, fr: boolean) {
+    const k = (HX1 - HX0) / Math.max(1, d.br - d.bl), X = (px: number) => HX0 + (px - d.bl) * k, Y = (py: number) => (d.bodyB - py) * k;
+    const wallH = Math.max(60, Y(d.eaveY)), ridgeH = Math.max(wallH + 30, Y(d.apexY)), eL = X(d.el), eR = X(d.er), aX = X(d.mid);
+    const tx = (c: HTMLCanvasElement) => { const t = this.own(new THREE.CanvasTexture(c)); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; };
+    const plane = (c: HTMLCanvasElement, w: number, h: number) => new THREE.Mesh(this.own(new THREE.PlaneGeometry(w, h)), this.own(new THREE.MeshBasicMaterial({ map: tx(c), transparent: true, alphaTest: 0.35, side: THREE.DoubleSide })));
+    const fw = d.W * k, fh = d.H * k, cx = X(d.W / 2), cy = Y(d.H / 2);
+    const front = new THREE.Group(); front.position.set(0, 0, HZ1); const fm = plane(d.fc, fw, fh); fm.position.set(cx, cy, 0); front.add(fm); HG.add(front);
+    const walls = new THREE.Group(); HG.add(walls);
+    const back = plane(d.src, fw, fh); back.position.set(cx, cy, HZ0 - 1); back.rotation.y = Math.PI; walls.add(back);
+    const wm = this.toon(d.wall), wm2 = this.toon(shade(d.wall, 0.92)), lm = this.own(new THREE.LineBasicMaterial({ color: INK }));
+    const box = (w: number, h: number, dd: number, x: number, y: number, z: number, m: THREE.Material) => {
+      const g = this.own(new THREE.BoxGeometry(w, h, dd)), b = new THREE.Mesh(g, m); b.position.set(x, y, z); walls.add(b);
+      const ed = new THREE.LineSegments(this.own(new THREE.EdgesGeometry(g)), lm); ed.position.copy(b.position); walls.add(ed);
+    };
+    box(10, wallH, HZ1 - HZ0, HX0, wallH / 2, (HZ0 + HZ1) / 2, wm); box(10, wallH, HZ1 - HZ0, HX1, wallH / 2, (HZ0 + HZ1) / 2, wm); box(HX1 - HX0, wallH, 4, 0, wallH / 2, HZ0 + 2, wm2);
+    // the wall between the living room and the kitchen, with a doorway in the middle
+    const ph = wallH * 0.9; box(8, ph, 120, 0, ph / 2, -270, wm2); box(8, ph, 120, 0, ph / 2, -50, wm2);
+    const roof = new THREE.Group(); HG.add(roof);
+    const rm = this.own(new THREE.MeshToonMaterial({ color: d.roof, gradientMap: this.grad, side: THREE.DoubleSide })), za = HZ0 - 16, zb = HZ1 + 16;
+    const quad = (a: number[], b: number[], c: number[], f: number[]) => { const g = this.own(new THREE.BufferGeometry()); g.setAttribute('position', new THREE.Float32BufferAttribute([...a, ...b, ...c, ...a, ...c, ...f], 3)); g.computeVertexNormals(); return new THREE.Mesh(g, rm); };
+    roof.add(quad([eL, wallH, za], [aX, ridgeH, za], [aX, ridgeH, zb], [eL, wallH, zb]), quad([eR, wallH, za], [eR, wallH, zb], [aX, ridgeH, zb], [aX, ridgeH, za]));
+    ([[[eL, wallH, za], [aX, ridgeH, za]], [[eR, wallH, za], [aX, ridgeH, za]], [[aX, ridgeH, za], [aX, ridgeH, zb]], [[eL, wallH, za], [eL, wallH, zb]], [[eR, wallH, za], [eR, wallH, zb]]] as number[][][]).forEach(([a, b]) => roof.add(this.seg(a, b, 2.4)));
+    let D: DoorState | null = null;
+    if (d.door && d.dc) {
+      const [a, b, c2, e2] = d.door, dw = (c2 - a) * k, dh = (e2 - b) * k, dx = X(a), dy = Y(e2), piv = new THREE.Group(); piv.position.set(dx, dy, 1);
+      const dm = plane(d.dc, dw, dh); dm.position.set(dw / 2, dh / 2, 0); piv.add(dm); front.add(piv);
+      const hl = new THREE.Group();
+      ([[[dx, dy, 3], [dx + dw, dy, 3]], [[dx + dw, dy, 3], [dx + dw, dy + dh, 3]], [[dx + dw, dy + dh, 3], [dx, dy + dh, 3]], [[dx, dy + dh, 3], [dx, dy, 3]]] as number[][][]).forEach(([p, q]) => hl.add(this.seg(p, q, 5, '#FFE66D')));
+      hl.visible = false; front.add(hl);
+      const tag = this.sprite('Door found!', { size: 44, pill: true, bg: '#FFC93C', color: INK, k: 0.55 }); tag.position.set(dx + dw / 2, dy + dh + 50, 8); tag.visible = false; front.add(tag);
+      D = this.door = { piv, x0: dx, x1: dx + dw, cx: dx + dw / 2, open: 0, forced: null, hl, tag };
+      // the walkers go in and out through it
+      this.walkers.forEach(w => w.legs.forEach(l => { if (l.a.door) l.a.x = D!.cx; if (l.b.door) l.b.x = D!.cx; }));
+    }
+    // look inside: the roof lifts off and the front comes away
+    if (cfg.peek) { roof.visible = false; front.visible = false; back.visible = false; }
+    if (fr && !this.reducedMotion) {
+      // the front rises up off the ground, the walls grow, the roof drops on, the door is found and swings open once
+      const t0 = now() + 0.5; front.rotation.x = Math.PI / 2; walls.scale.y = 0.0001; roof.position.y = 700;
+      this.fx.push(n => {
+        const c = (v: number) => clamp(v, 0, 1), k1 = c((n - t0) / 1.5), k2 = c((n - t0 - 1.3) / 0.8), k3 = c((n - t0 - 2) / 0.9);
+        front.rotation.x = (Math.PI / 2) * (1 - easeBack(k1)); walls.scale.y = Math.max(0.0001, easeBack(k2)); roof.position.y = 700 * (1 - k3) * (1 - k3);
+        if (D) { const on = n > t0 + 3 && n < t0 + 6.4; D.hl.visible = on && Math.floor(n * 4) % 2 === 0; D.tag.visible = on; D.forced = n > t0 + 4 && n < t0 + 5.8 ? 1 : null; }
+        return n < t0 + 6.5;
+      });
+    }
+    let last = now();
+    if (D) this.fx.push(n => {
+      const dt = Math.min(0.05, n - last); last = n; if (!D!.piv.parent) return false;
+      // walking up to the door opens it
+      let tg = D!.forced != null ? D!.forced : 0; if (this.pov) tg = Math.hypot(this.pov.x - D!.cx, this.pov.z - HZ1) < 170 ? 1 : 0;
+      D!.open += (tg - D!.open) * Math.min(1, dt * 4); D!.piv.rotation.y = -D!.open * 1.75; return true;
+    });
+  }
+
+  private dream(cfg: DreamMapCfg, o: { lite?: boolean } = {}) {
+    const G = new THREE.Group(), R = rnd(5), rooms = cfg.dream.rooms, hs = cfg.dream.house, fr = cfg.fresh || null, lite = !!o.lite, t0 = now();
+    const dot = this.dot ||= new THREE.SphereGeometry(7, 10, 8), disc = this.disc ||= new THREE.CircleGeometry(1, 24);
+    const grow = (s: THREE.Object3D, d = 0.4) => this.growIn(s, t0 + d + R() * 0.6);
+    // the ground: a rounded green board
+    const sh = new THREE.Shape(), x0 = -620, x1 = 620, z0 = -380, z1 = 420, r = 80;
+    sh.moveTo(x0 + r, z0); sh.lineTo(x1 - r, z0); sh.quadraticCurveTo(x1, z0, x1, z0 + r); sh.lineTo(x1, z1 - r); sh.quadraticCurveTo(x1, z1, x1 - r, z1); sh.lineTo(x0 + r, z1); sh.quadraticCurveTo(x0, z1, x0, z1 - r); sh.lineTo(x0, z0 + r); sh.quadraticCurveTo(x0, z0, x0 + r, z0);
+    const gg = this.own(new THREE.ExtrudeGeometry(sh, { depth: 30, bevelEnabled: false, curveSegments: 8 })); gg.rotateX(Math.PI / 2);
+    const pts = sh.getPoints(8);
+    G.add(new THREE.Mesh(gg, [this.toon('#9BDB6A'), this.toon('#4E9F3D')]), new THREE.Mesh(this.own(this.edge(pts.map(p => new THREE.Vector3(p.x, 0.5, p.y)), 2.4)), this.basic(INK)), new THREE.Mesh(this.own(this.edge(pts.map(p => new THREE.Vector3(p.x, -30, p.y)), 2)), this.basic(INK)));
+    const dash = (ax0: number, az0: number, ax1: number, az1: number, col: string) => { const dm = this.basic(col), per = [[ax0, az0], [ax1, az0], [ax1, az1], [ax0, az1]]; for (let i = 0; i < 4; i++) { const [ax, az] = per[i], [bx, bz] = per[(i + 1) % 4], n = Math.round(Math.hypot(bx - ax, bz - az) / 30); for (let j = 0; j < n; j++) { const s = new THREE.Mesh(dot, dm); s.scale.setScalar(0.55); s.position.set(ax + ((bx - ax) * j) / n, 3, az + ((bz - az) * j) / n); G.add(s); } } };
+    const pn = rooms.park?.n || 0;
+    (Object.keys(ROOMS) as RoomKey[]).forEach(key => {
+      const def = ROOMS[key], rm = rooms[key], n = rm?.n || 0, st = rm?.status || 'locked', isF = (j: number) => !!fr && fr.room === key && fr.i === j;
+      const rx0 = def.x - def.w / 2, rx1 = def.x + def.w / 2, rz0 = def.z - def.d / 2, rz1 = def.z + def.d / 2;
+      if (n === 0) dash(rx0 + 10, rz0 + 10, rx1 - 10, rz1 - 10, st === 'locked' ? '#B5AA94' : INK);
+      if (st === 'locked') { const l = this.lockSprite(1.4); l.position.set(def.x, 70, def.z); G.add(l); return; }
+      // an invisible pad over the room, so it can be tapped from above
+      if (!lite) { const pad = new THREE.Mesh(this.own(new THREE.BoxGeometry(def.w, 6, def.d)), this.own(new THREE.MeshBasicMaterial({ visible: false }))); pad.position.set(def.x, 3, def.z); pad.userData.pick = { type: 'room', room: key }; G.add(pad); this.pickables.push(pad); }
+      if (n === 0 && !(hs.status === 'current' && key !== 'park')) { const q = this.sprite('?', { size: 150, color: '#8E7FD0' }); q.position.set(def.x, 150, key === 'park' ? def.z + 110 : def.z); G.add(q); this.qs.push(q); this.huds.push(q); }
+      if (n > 0 && def.floor) {
+        const top = this.own(new THREE.MeshToonMaterial({ map: this.floorTex(def.floor), gradientMap: this.grad })), sd = this.toon('#C99E6A'), fg = this.own(new THREE.BoxGeometry(def.w - 8, 4, def.d - 8));
+        const f = new THREE.Mesh(fg, [sd, sd, top, sd, sd, sd]); f.position.set(def.x, 2, def.z); G.add(f);
+        const ed = new THREE.LineSegments(this.own(new THREE.EdgesGeometry(fg)), this.own(new THREE.LineBasicMaterial({ color: INK }))); ed.position.copy(f.position); G.add(ed);
+        if (isF(0)) { grow(f, 0.1); grow(ed, 0.1); }
+      }
+      def.furn.forEach(([k, u, x, z, h, y = 0, flat]) => { if (n < u) return; const s = this.standee(k, h, !!flat); s.position.set(x, flat ? 4.5 : y + (def.floor ? 4 : 0), z); G.add(s); if (isF(u - 1)) grow(s, 0.3); });
+      (rm?.pairs || []).forEach((pr, j) => {
+        const sl = def.slots[j]; if (!sl) return;
+        ([[pr[0], sl[0]], [pr[1], sl[1]]] as const).forEach(([d, [x, z, y]], side) => {
+          if (!d) return; const b = this.drawing(d, 54, isF(j) ? t0 + 1.2 + side * 0.6 : 0); b.position.set(x, y + (def.floor ? 4 : 0), z); G.add(b);
+        });
+      });
+    });
+    // the park: trees and a pond, a path; then things flying about; then a bridge to a floating fantasy island
+    if (pn >= 1) {
+      const fP = !!fr && fr.room === 'park' && fr.i === 0;
+      ([[-530, 120, 230, 0], [-470, 340, 200, 1], [520, 80, 210, 2], [-560, -200, 240, 3], [560, -250, 220, 1], [300, 380, 180, 0]] as const).forEach(([x, z, h, i]) => { const s = this.npic(TREES[i], h); s.position.set(x, 0, z); G.add(s); this.critters.push({ s, kind: 'sway', ph: R() * 6, amp: 0.03 }); if (fP) grow(s, 0.2); });
+      const pm = new THREE.Mesh(disc, this.toon('#5AB0F0')); pm.rotation.x = -Math.PI / 2; pm.scale.setScalar(72); pm.position.set(380, 1, 300); G.add(pm);
+      const rg = new THREE.Mesh(this.own(new THREE.TorusGeometry(72, 2.4, 6, 48)), this.basic(INK)); rg.rotation.x = Math.PI / 2; rg.position.set(380, 1.2, 300); G.add(rg); if (fP) { grow(pm, 0.2); grow(rg, 0.2); }
+      const cv = new THREE.CatmullRomCurve3([[-190, 24], [-150, 110], [-40, 200], [150, 240], [380, 210], [590, 220]].map(([x, z]) => new THREE.Vector3(x, 3, z))), dm = this.toon('#FFC93C');
+      cv.getSpacedPoints(Math.round(cv.getLength() / 34)).forEach(p => { if (Math.hypot(p.x - 380, p.z - 300) < 80) return; const s = new THREE.Mesh(dot, dm); s.position.copy(p); G.add(s); });
+    }
+    if (pn >= 3 && !lite) ['bfly1', 'bfly2', 'bee'].forEach((k, i) => this.flyer(G, k, -200 + i * 220, 240 - i * 30, 60, { size: 28, ph: i * 2, r: 50, at: fr && fr.room === 'park' && fr.i === 2 ? t0 + 1.5 : 0 }));
+    if (pn >= 4) {
+      const fP = !!fr && fr.room === 'park' && fr.i === 3, B = new THREE.Group(), wood = this.toon('#C98B5A'), rail: THREE.Vector3[][] = [[], []];
+      const plank = this.own(new THREE.BoxGeometry(15, 4, 64)), post = this.own(new THREE.BoxGeometry(3, 30, 3));
+      for (let i = 0; i < 14; i++) {
+        const u = i / 13, x = 600 + u * 230, y = Math.sin(Math.PI * u) * 40 + u * 92, p = new THREE.Mesh(plank, wood); p.position.set(x, y, 220); B.add(p);
+        rail[0].push(new THREE.Vector3(x, y + 30, 190)); rail[1].push(new THREE.Vector3(x, y + 30, 250));
+        if (i % 3 === 0) [190, 250].forEach(z => { const q = new THREE.Mesh(post, this.basic(INK)); q.position.set(x, y + 15, z); B.add(q); });
+      }
+      rail.forEach(rr => B.add(new THREE.Mesh(this.own(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(rr), 40, 2, 5, false)), this.basic(INK)))); G.add(B);
+      const I = new THREE.Group(); I.position.set(960, 0, 220);
+      const top = new THREE.Mesh(this.own(new THREE.CylinderGeometry(150, 40, 90, 12)), [this.toon('#C9B6F2'), this.toon('#F5D3F0'), this.toon('#8E7FD0')]); top.position.y = 47; I.add(top);
+      const rim = new THREE.Mesh(this.own(new THREE.TorusGeometry(150, 2.4, 6, 48)), this.basic(INK)); rim.rotation.x = Math.PI / 2; rim.position.y = 92; I.add(rim);
+      ['#E4572E', '#FFC93C', '#6CC24A', '#2F5FD0', '#9B5DE5'].forEach((c, i) => { const a = new THREE.Mesh(this.own(new THREE.TorusGeometry(120 - i * 12, 6, 8, 40, Math.PI)), this.toon(c)); a.position.set(0, 92, -60); I.add(a); });
+      const ico = this.own(new THREE.IcosahedronGeometry(1, 0)), sp: THREE.Mesh[] = [];
+      for (let i = 0; i < 9; i++) { const s = new THREE.Mesh(ico, this.basic('#FFE66D')); s.scale.setScalar(6); s.position.set(-120 + R() * 240, 130 + R() * 120, -80 + R() * 160); I.add(s); sp.push(s); }
+      this.loops.push(t => sp.forEach((s, i) => s.scale.setScalar(4 + 3 * Math.abs(Math.sin(t * 2 + i)))));
+      G.add(I); if (fP) { grow(B, 0.3); grow(I, 0.6); }
+    }
+    // the house stands as soon as its drawing is in (it builds itself then), before the reveal marks it done
+    const src = hs.url || (hs.id ? 'id:' + hs.id : '');
+    if (hs.status === 'current' && !src) { const q = this.sprite('?', { size: 170, color: '#8E7FD0' }); q.position.set(0, 150, -160); G.add(q); this.qs.push(q); this.huds.push(q); }
+    // the house, rebuilt from their drawing (read once per drawing, then kept)
+    if (src) {
+      const HG = new THREE.Group(); G.add(HG); const built = this.cfg;
+      const go = (d: HouseShape) => { if (this.cfg === built) this.buildHouse(HG, d, cfg, !lite && fr?.room === 'house'); };
+      const hit = HOUSES.get(src);
+      if (hit) go(hit);
+      else (hs.url ? Promise.resolve(hs.url) : this.artLoader ? this.artLoader(hs.id!) : Promise.resolve(null))
+        .then(url => (url ? loadHouse(url) : Promise.reject(new Error('no image of the house'))))
+        .then(d => { HOUSES.set(src, d); go(d); }).catch(e => console.warn('house', e));
+    }
+    // the whole map finished: it comes alive with grass, fish jumping in the pond and insects about
+    if (cfg.dream.alive && !lite) {
+      let gp = 0, tr = 0;
+      while (gp < 60 && tr < 2000) { tr++; const x = -600 + R() * 1200, z = -370 + R() * 780; if (x > HX0 - 20 && x < HX1 + 20 && z > HZ0 - 20 && z < HZ1 + 30) continue; if (Math.hypot(x - 380, z - 300) < 90) continue; gp++; const s = this.npic(GRASS[Math.floor(R() * GRASS.length)], 18 + R() * 16); s.position.set(x, 0, z); G.add(s); if (R() < 0.4) this.critters.push({ s, kind: 'sway', ph: R() * 6, amp: 0.05 }); }
+      [0, 1, 2].forEach(i => this.fishAt(G, ['fish6', 'fish5', 'fish3'][i], 380 + (i - 1) * 24, 300, 0, i % 2 ? -1 : 1, 0.2, { size: 28, span: 40, H: 44, ph: i * 1.3, per: 3.4 + i * 0.5 }));
+      ['dfly2', 'bfly3', 'bfly1'].forEach((k, i) => this.flyer(G, k, [380, -450, 450][i], [290, -250, -60][i], 60, { size: 30, ph: i * 2, r: 44 }));
+      ['ladybug', 'beetle'].forEach((k, i) => { const s = this.npic(k, 14, 0.2); s.position.set(-200 + i * 360, 2, 340); G.add(s); this.critters.push({ s, kind: 'crawl', cx: -200 + i * 360, cz: 340, ph: i * 3 }); });
+    }
+    // the two of them walk about: in and out of the house through its door, and round the park
+    if (this.cfg?.walkers && !lite && (!!src || Object.values(rooms).some(rr => (rr?.n || 0) > 0))) {
+      const P = (x: number, z: number, p = 0, act: Stop['act'] = null, f?: 1 | -1, door = false): Stop => ({ x, z, p, act, f, door });
+      const built = !!src, pDone = pn >= 4;
+      const ground: Ground = (x, z) => {
+        if (pDone) { if (x > 590 && x < 840 && z > 192 && z < 248) { const u = clamp((x - 600) / 230, 0, 1); return Math.sin(Math.PI * u) * 40 + u * 92; } if (Math.hypot(x - 960, z - 220) < 135) return 92; }
+        if (x < -600 || x > 600 || z < -360 || z > 400) return null; if (pn >= 1 && Math.hypot(x - 380, z - 300) < 72) return null;
+        if (built) {
+          // the walls stop them; the front only lets them through the open door, and the inner wall through its doorway
+          const D = this.door, inX = x > HX0 - 14 && x < HX1 + 14, inZ = z > HZ0 - 14 && z < HZ1 + 14;
+          if (inX && z > HZ1 - 12 && z < HZ1 + 14) return D && D.open > 0.55 && x > D.x0 + 8 && x < D.x1 - 8 ? 0 : null;
+          if (inX && z > HZ0 - 14 && z < HZ0 + 12) return null; if (inZ && (Math.abs(x - HX0) < 14 || Math.abs(x - HX1) < 14)) return null; if (inZ && Math.abs(x) < 12 && !(z > -205 && z < -115)) return null;
+        }
+        return 0;
+      };
+      const dc = this.door ? this.door.cx : -150;
+      this.walker(G, 'd', 110, [P(-300, 190, 2.4, 'look', 1), P(dc, 80, 0, null, undefined, true), P(dc, -60, 0, null, undefined, true), P(-200, -140, 2.6, 'look', -1), P(dc, -60, 0, null, undefined, true), P(dc, 80, 0, null, undefined, true)], { ground, v: 34, y0: 0 });
+      this.walker(G, 'a', 95, [P(-60, 320, 1.6, 'wave'), P(200, 250, 1, 'look', 1), P(300, 160, 1.2), P(-150, 230, 1, 'look', -1)], { ground, v: 60, hop: true, off: 1.5, y0: 0 });
+    }
+    return G;
+  }
+
+  private frameDream(f: DreamFocus) {
+    const key = 'dream:' + f; if (this.mode === key) return; this.mode = key; const c = this.controls, cam = this.camera;
+    const F = DREAM_VIEW[f] || DREAM_VIEW.all;
+    c.enabled = true; c.target.set(F[0][0], F[0][1], F[0][2]); cam.position.set(F[1][0], F[1][1], F[1][2]); c.minDistance = 350; c.maxDistance = 3600; this.fitCamera(); c.update();
+  }
+
   private board(m: MonthCfg, i: number) {
     const B = new THREE.Group(); B.userData.pick = { type: 'month', mi: i };
     const cream = this.toon('#FFF3D1', m.current ? 0.35 : 1), edge = this.toon('#E6CF92', m.current ? 0.3 : 1);
@@ -622,7 +909,9 @@ export class MapScene {
     const eg = this.own(new THREE.EdgesGeometry(this.slabGeo));
     if (m.current) { const e = new THREE.LineSegments(eg, this.own(new THREE.LineDashedMaterial({ color: INK, dashSize: 24, gapSize: 18 }))); e.computeLineDistances(); e.position.y = -14; B.add(e); }
     else { const e = new THREE.LineSegments(eg, this.own(new THREE.LineBasicMaterial({ color: INK }))); e.position.y = -14; B.add(e); }
-    const mg = this.month(m.places, { labels: false, lite: true }); mg.scale.setScalar(0.85); mg.position.y = mg.userData.alive ? 72 : 34; B.add(mg);
+    const mg = m.dream ? this.dream({ mode: 'dream', key: '', dream: m.dream }, { lite: true }) : this.month(m.places, { labels: false, lite: true });
+    if (m.dream) mg.userData.alive = true;
+    mg.scale.setScalar(0.85); mg.position.y = mg.userData.alive ? 72 : 34; B.add(mg);
     if (m.current) mg.traverse(o => { const mesh = o as THREE.Mesh; if (mesh.isMesh) { const fix = (x: THREE.Material) => { const c = this.own(x.clone()); c.transparent = true; c.opacity = Math.min(x.opacity, 0.5); c.depthWrite = false; return c; }; mesh.material = Array.isArray(mesh.material) ? mesh.material.map(fix) : fix(mesh.material); } });
     const s = this.sprite(m.name, { size: 52, pill: true, bg: m.current ? '#FFF3D1' : INK, color: m.current ? INK : '#FFF3D1', k: 1.3 }); s.position.set(-990, 40, 0); B.add(s);
     this.pickables.push(B); return B;
@@ -631,16 +920,18 @@ export class MapScene {
   private build(cfg: MapConfig) {
     this.cfg = cfg; this.root.clear(); this.clearOwned();
     this.items = []; this.tweens = []; this.qs = []; this.pickables = []; this.grows = []; this.streams = []; this.loops = []; this.fx = [];
-    this.flows = []; this.sway = []; this.sheep = []; this.clouds = []; this.ripples = []; this.walkers = []; this.plants = []; this.huds = [];
+    this.flows = []; this.sway = []; this.sheep = []; this.pets = []; this.clouds = []; this.ripples = []; this.walkers = []; this.plants = []; this.huds = []; this.critters = []; this.door = null;
     this.bubbles.forEach(b => this.scene.remove(b.s)); this.bubbles = [];
     if (this.pov) { this.pov = null; this.camera.fov = 30; this.camera.updateProjectionMatrix(); this.mode = null; this.joyEl.style.display = 'none'; this.keys.clear(); this.onPov(null); }
     if (cfg.mode === 'place') this.root.add(this.island(cfg.place, { fresh: cfg.fresh, fade: cfg.fade, q: true, S: 76, walk: true }));
     else if (cfg.mode === 'month') this.root.add(this.month(cfg.places, { pick: true, kind: cfg.kind }));
+    else if (cfg.mode === 'dream') this.root.add(this.dream(cfg));
     else cfg.months.forEach((m, i) => { const b = this.board(m, i); b.position.y = -i * STEP; this.root.add(b); });
-    this.frame(cfg.mode);
+    this.frame(cfg.mode === 'dream' ? 'dream:' + (cfg.focus || 'all') : cfg.mode);
   }
 
   private frame(mode: string) {
+    if (mode.startsWith('dream:')) { this.frameDream(mode.slice(6) as DreamFocus); return; }
     if (mode === this.mode) return; this.mode = mode; const c = this.controls, cam = this.camera;
     c.enabled = mode !== 'stack';
     if (mode === 'place') { c.target.set(0, 50, 10); cam.position.set(0, 520, 880); c.minDistance = 600; c.maxDistance = 1500; }
@@ -659,7 +950,7 @@ export class MapScene {
   /** Dragging can't lose the map: the point the camera looks at stays over the island / month. */
   private keepInView() {
     if (!this.mode || this.mode === 'stack') return;
-    const c = this.controls, t = c.target, [bx, bz] = this.mode === 'place' ? [280, 190] : [800, 600];
+    const c = this.controls, t = c.target, [bx, bz] = this.mode === 'place' ? [280, 190] : this.mode.startsWith('dream') ? [900, 450] : [800, 600];
     const x = clamp(t.x, -bx, bx), z = clamp(t.z, -bz, bz);
     if (x === t.x && z === t.z) return;
     this.camera.position.x += x - t.x; this.camera.position.z += z - t.z; t.x = x; t.z = z;
@@ -669,11 +960,12 @@ export class MapScene {
   private fitCamera() {
     if (!this.mode || this.mode === 'stack') return;
     const a = this.camera.aspect, k = a < 1.25 ? Math.min(1.9, 1.25 / a) : 1, c = this.controls, cam = this.camera;
-    const base = this.mode === 'place' ? new THREE.Vector3(0, 520, 880) : new THREE.Vector3(0, 1450, 1750);
+    const dv = this.mode.startsWith('dream:') ? DREAM_VIEW[this.mode.slice(6) as DreamFocus] || DREAM_VIEW.all : null;
+    const base = dv ? new THREE.Vector3(dv[1][0] - dv[0][0], dv[1][1] - dv[0][1], dv[1][2] - dv[0][2]) : this.mode === 'place' ? new THREE.Vector3(0, 520, 880) : new THREE.Vector3(0, 1450, 1750);
     const dir = cam.position.clone().sub(c.target); const len = base.length() * k;
     if (dir.lengthSq() < 1) dir.copy(base);
     cam.position.copy(c.target).add(dir.setLength(len));
-    if (this.mode === 'place') { c.minDistance = 600 * k; c.maxDistance = 1500 * k; } else { c.minDistance = 1200 * k; c.maxDistance = 3200 * k; }
+    if (dv) { c.minDistance = 350 * k; c.maxDistance = 3600 * k; } else if (this.mode === 'place') { c.minDistance = 600 * k; c.maxDistance = 1500 * k; } else { c.minDistance = 1200 * k; c.maxDistance = 3200 * k; }
   }
 
   private pick(e: PointerEvent) {
@@ -748,11 +1040,12 @@ export class MapScene {
   private povPick(e: PointerEvent) {
     const P = this.pov!, r = this.renderer.domElement.getBoundingClientRect(), v = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     const rc = new THREE.Raycaster(); rc.setFromCamera(v, this.camera);
-    const hit = rc.intersectObjects([...this.items.map(i => i.base), ...this.walkers.filter(w => w !== P.w).map(w => w.s), ...this.plants], true)[0]; if (!hit) return;
-    let o: THREE.Object3D | null = hit.object; while (o && !o.userData.item && !o.userData.walker && !o.userData.plant) o = o.parent; if (!o) return;
+    const hit = rc.intersectObjects([...this.items.map(i => i.base), ...this.walkers.filter(w => w !== P.w).map(w => w.s), ...this.plants, ...this.pets], true)[0]; if (!hit) return;
+    let o: THREE.Object3D | null = hit.object; while (o && !o.userData.item && !o.userData.walker && !o.userData.plant && !o.userData.say) o = o.parent; if (!o) return;
     const n = now(), names = this.cfg?.names || { d: 'Dadi', a: 'Aarav' }, wp = o.getWorldPosition(new THREE.Vector3());
     if (hit.distance > (P.w.speed > 200 ? 420 : 330)) { this.bubble('Walk closer!', wp.add(new THREE.Vector3(0, 60, 0))); return; }
     if (o.userData.walker) { const w = o.userData.walker as Walker; w.waveUntil = n + 2.4; this.bubble('Hi, ' + names[P.w.who] + '!', wp.add(new THREE.Vector3(0, w.h * 1.1, 0)), { bg: w.who === 'd' ? DADI : CHILD, color: '#FFF3D1' }); return; }
+    if (o.userData.say) { this.bubble(o.userData.say, wp.add(new THREE.Vector3(0, 46, 0))); return; }
     if (o.userData.plant) { o.userData.plant.pop = n; this.bubble('Mmm, flowers!', wp.add(new THREE.Vector3(0, 34, 0))); return; }
     const it = o.userData.item as Item, label = (it.d.label || it.d.kind || '').trim();
     it.pop = n; this.bubble(SAY[(it.d.kind || '').toLowerCase()] || (label ? label[0].toUpperCase() + label.slice(1) + '!' : 'Hello!'), wp.add(new THREE.Vector3(0, it.S * 1.25, 0)));
@@ -805,7 +1098,8 @@ export class MapScene {
     const A = this.reducedMotion ? 0.25 : 1, tv = this.tv;
     for (const f of this.flows) { const u = (t * 0.02 * A + f.i / f.n) % 1, p = f.curve.getPointAt(u), d = f.curve.getTangentAt(u); f.o.position.set(p.x + Math.sin(f.i * 2.3) * 9, -23.4, p.z); tv.set(f.o.position.x + d.x, -23.4, f.o.position.z + d.z); f.o.lookAt(tv); }
     for (const s of this.sway) s.o.rotation.z = Math.sin(t * 0.8 + s.ph) * 0.05 * A;
-    for (const s of this.sheep) { const k = t * A; s.o.position.set(s.cx + Math.sin(k * 0.15 + s.ph) * 28, -26 + Math.abs(Math.sin(k * 2 + s.ph)) * 2, s.cz + Math.cos(k * 0.12 + s.ph) * 18); s.o.rotation.y = Math.sin(k * 0.15 + s.ph) > 0 ? 0 : Math.PI; }
+    for (const s of this.sheep) { const k = t * A; s.o.position.set(s.cx + Math.sin(k * 0.15 + s.ph) * 28, -26 + Math.abs(Math.sin(k * 2 + s.ph)) * 2, s.cz + Math.cos(k * 0.12 + s.ph) * 18); s.o.rotation.y = Math.sin(k * 0.15 + s.ph) > 0 ? 0 : Math.PI;
+      const sp = s.o.children[0]; if (sp instanceof THREE.Sprite && sp.userData.w) sp.scale.x = (Math.cos(k * 0.15 + s.ph) > 0 ? -1 : 1) * sp.userData.w; }
     for (const c of this.clouds) c.o.position.x = (((c.x0 + t * c.v * A + 900) % 1800) + 1800) % 1800 - 900;
     for (const r of this.ripples) { const k = (t * 0.25 * A + r.ph) % 1; r.o.scale.set(r.R * (0.3 + k * 0.65), 30, r.R * (0.3 + k * 0.65)); r.m.opacity = (1 - k) * 0.8; }
     for (const c of this.plants) { const p = c.userData.plant, b = p.base as THREE.Vector3; if (!p.pop) continue; const k = (n - p.pop) / 0.8, s = Math.sin(k * Math.PI); if (k < 1) c.scale.set(b.x * (1 + 0.5 * s), b.y * (1 + 0.8 * s), b.z * (1 + 0.5 * s)); else { p.pop = 0; c.scale.copy(b); } }
@@ -834,6 +1128,14 @@ export class MapScene {
       else rot = Math.sin(t * 1.5 + w.off) * 0.03;
       if (waving) { bob = Math.abs(Math.sin(t * 6)) * 14; rot = Math.sin(t * 6) * 0.1; }
       w.s.position.set(x, y + w.y0 + bob * A, z); w.s.scale.x = w.h * w.face; w.s.material.rotation = rot * A;
+    }
+    for (const c of this.critters) {
+      const s = c.s, m = s.material as THREE.SpriteMaterial, k = t * A;
+      if (c.at && n < c.at) { s.visible = false; continue; }
+      if (c.kind === 'fly') { s.visible = true; const a = k * 0.7 + c.ph, x = c.cx + Math.cos(a) * c.r, z = c.cz + Math.sin(a * 1.3) * c.r * 0.6, vx = -Math.sin(a); s.position.set(x, c.y0 + Math.sin(k * 2.4 + c.ph) * 7, z); const f = c.flap ? 0.4 + 0.6 * Math.abs(Math.sin(t * 11 * A + c.ph)) : 1; s.scale.x = s.userData.w * f * (vx > 0 ? -1 : 1); m.rotation = Math.sin(k * 3 + c.ph) * 0.15; }
+      else if (c.kind === 'fish') { const q = ((((k + c.ph) % c.per) + c.per) % c.per) / 1.15; if (q > 1) { s.visible = false; continue; } s.visible = true; const sd = c.dx >= 0 ? 1 : -1; s.position.set(c.x0 + (q - 0.5) * c.span * c.dx, c.y0 - 6 + Math.sin(Math.PI * q) * c.H, c.z0 + (q - 0.5) * c.span * c.dz); s.scale.x = s.userData.w * sd * c.face; m.rotation = sd * Math.cos(Math.PI * q) * 0.8; }
+      else if (c.kind === 'crawl') { s.visible = true; const a = k * 0.25 + c.ph; s.position.x = c.cx + Math.sin(a) * 10; s.position.z = c.cz + Math.cos(a * 0.8) * 6; }
+      else m.rotation = Math.sin(k * 1.5 + c.ph) * c.amp;
     }
     for (const q of this.qs) { q.material.opacity = 0.55 + 0.35 * Math.sin(t * 2.4); q.position.y = 150 + Math.sin(t * 1.2) * 6; }
     this.renderer.render(this.scene, this.camera);

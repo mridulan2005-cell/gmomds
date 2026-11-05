@@ -75,6 +75,16 @@ export function Map3D({ config, onPick, reducedMotion, pov = null, onPov }: { co
   return <div ref={host} className="map-canvas">{failed && <div className="loading3d">3D isn't available on this device.</div>}</div>;
 }
 
+/** Hand-drawn birds flying across the sky, behind everything else. */
+export function SkyBirds() {
+  const b = import.meta.env.BASE_URL + 'scenery/';
+  return (
+    <div className="sky-birds" aria-hidden="true">
+      <img src={b + 'bird-green.png'} alt="" style={{ top: '16%', width: 150, animationDuration: '46s, 2.6s', animationDelay: '-8s, 0s' }} />
+      <img src={b + 'birds-pair.png'} alt="" style={{ top: '30%', width: 230, animationDuration: '62s, 3.1s', animationDelay: '-36s, -1s', scale: '-1 1' }} />
+    </div>
+  );
+}
 export const Cloud = ({ style, fill = '#CDEDEA', w = 190 }: { style: React.CSSProperties; fill?: string; w?: number }) => (
   <svg width={w} height={(w * 70) / 190} viewBox="0 0 190 70" style={{ position: 'absolute', ...style }}><path d="M30 68 Q0 68 4 46 Q8 26 34 30 Q40 6 70 8 Q96 10 104 30 Q124 16 146 28 Q166 22 178 42 Q192 68 160 68 Z" fill={fill} /></svg>
 );

@@ -25,6 +25,11 @@ input { font-family: inherit; -webkit-user-select: text; user-select: text; }
 @keyframes spin { to { rotate: 360deg } }
 @keyframes hop { 0%, 100% { translate: 0 0 } 50% { translate: 0 -10px } }
 @keyframes pulse { 0%, 100% { opacity: .55 } 50% { opacity: 1 } }
+@keyframes fly { from { translate: -320px 0 } to { translate: calc(var(--W) + 320px) 0 } }
+@keyframes flap { 0%, 100% { margin-top: 0 } 50% { margin-top: -14px } }
+.sky-birds { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.sky-birds img { position: absolute; left: 0; height: auto; animation: fly linear infinite, flap 2.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .sky-birds img { animation: none; translate: 30vw 0; } .sky-birds img + img { translate: 62vw 0; } }
 @keyframes slideup { from { translate: 0 40px; opacity: 0 } to { translate: 0 0; opacity: 1 } }
 
 /* Buttons */
@@ -305,3 +310,13 @@ a.btn-cream { text-decoration: none; }
 .portrait .how-cards { gap: 34px 40px; margin-top: 30px; max-width: 800px; }
 .portrait .btn-primary.how-go { margin-top: 30px; }
 @media (prefers-reduced-motion: reduce) { .how-card { animation: none; } }
+
+/* Dream House: lift the roof off to look into the rooms */
+.peek-btn { position: absolute; right: 30px; bottom: calc(130px + env(safe-area-inset-bottom) / var(--scale)); z-index: 20; height: 64px; padding: 0 26px; font-size: 22px; }
+/* a small heading above the prompt (Window, Memory Shelf…), and a rule under it (the dream house's brown door) */
+.prompt-title { font-family: 'Kalam', 'Urbanist', cursive; font-size: 34px; font-weight: 700; color: var(--deep); opacity: .8; rotate: -2deg; margin-bottom: -6px; }
+.prompt-rule { margin-top: 6px; padding: 10px 22px; border-radius: 14px; background: var(--cream); box-shadow: 0 6px 0 var(--cream-shadow); font-size: 24px; font-weight: 800; color: var(--deep); display: flex; align-items: center; gap: 12px; max-width: 860px; }
+.prompt-rule i { flex: none; width: 28px; height: 40px; border-radius: 4px 4px 0 0; background: #6B3E1F; box-shadow: inset 0 0 0 3px #3d2b22; }
+/* the scan found the door in their drawing of the house */
+.door-tag { position: absolute; border: 5px solid #FFE66D; border-radius: 6px; box-shadow: 0 0 0 3px #3d2b22; animation: pulse 0.5s ease-in-out 6; pointer-events: none; }
+.door-tag span { position: absolute; left: 50%; bottom: calc(100% + 10px); translate: -50% 0; padding: 4px 14px; border-radius: 999px; background: var(--sun); color: #3d2b22; font-weight: 900; font-size: 20px; white-space: nowrap; box-shadow: 0 0 0 3px #3d2b22; }

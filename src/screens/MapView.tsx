@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useReducedMotion, type Go, type Route } from '../App';
-import { Arrow, Back, Dock, Map3D, Cloud, type Dest } from '../components';
+import { Arrow, Back, Dock, Map3D, Cloud, SkyBirds, type Dest } from '../components';
 import { CloseIcon } from '../icons';
 import { clearFresh, completePlace, currentPlace, getState, placeById, placeTotal, useApp } from '../lib/store';
-import { placeCfg, stackCfg } from '../lib/mapConfig';
-import type { MapConfig, Pick, Pov } from '../map/MapScene';
-import { BUILD_NOTES, CHILD, DADI, ORANGE, SUN } from '../lib/content';
+import { dreamCfg, placeCfg, stackCfg } from '../lib/mapConfig';
+import type { DreamFocus, MapConfig, Pick, Pov, RoomKey } from '../map/MapScene';
+import { BUILD_NOTES, CHILD, DADI, ORANGE, ROOM_NOTES, SUN } from '../lib/content';
 
 const WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven'];
 
@@ -22,9 +22,10 @@ export function MapView({ route, go, dest }: { route: MapRoute; go: Go; dest: (d
     const hit = route.screen === 'place' && fresh >= 0 ? placeById(s, route.placeId) : undefined;
     // the notes follow the place's four building stages (a place with fewer prompts builds more at a time)
     const T = hit ? placeTotal(hit.place) : 4, st = fresh + 1 >= T ? 4 : Math.round(((fresh + 1) * 4) / T);
-    const text = hit && hit.place.status === 'current' ? BUILD_NOTES[hit.place.theme]?.[st - 1] : undefined;
+    const room = hit?.place.room, text = room ? ROOM_NOTES[room]?.[fresh] : hit && hit.place.status === 'current' ? BUILD_NOTES[hit.place.theme]?.[st - 1] : undefined;
     if (!text) return;
-    const ts = [setTimeout(() => setNote(text), reduced ? 300 : 2700), setTimeout(() => setNote(null), reduced ? 6300 : 8700)];
+    const late = room === 'house' ? 4000 : 0;
+    const ts = [setTimeout(() => setNote(text), (reduced ? 300 : 2700) + late), setTimeout(() => setNote(null), (reduced ? 6300 : 8700) + late)];
     return () => ts.forEach(clearTimeout);
   }, []);
 
@@ -32,6 +33,8 @@ export function MapView({ route, go, dest }: { route: MapRoute; go: Go; dest: (d
   const [stage, setStage] = useState(0);
   // whose eyes the map is seen through (null: from above)
   const [pov, setPov] = useState<Pov>(null);
+  // the Dream House: lift the roof off to look into the rooms
+  const [peek, setPeek] = useState(false);
   const [revealPlace] = useState(() => (route.screen === 'reveal' ? currentPlace(getState()) : undefined));
   useEffect(() => {
     if (route.screen !== 'reveal') return;
@@ -42,27 +45,33 @@ export function MapView({ route, go, dest }: { route: MapRoute; go: Go; dest: (d
 
   let cfg: MapConfig | null = null, title = '', hint = '', back: { label: string; to: Route } | null = null;
   let stepper: { n: number; total: number; fresh: boolean; done: boolean } | null = null, freshLast = false, action: { label: string; run: () => void } | null = null, bookBtn: string | null = null;
+  let peekBtn = false, revealDelay = 4800;
 
   if (route.screen === 'stack') {
     cfg = { mode: 'stack', key: 'stack', months: stackCfg(s) };
     title = s.months.length > 1 ? 'All our maps' : 'Our map'; hint = s.months.length > 1 ? 'Scroll or drag to look through · tap a map to go inside' : 'Tap the map to go inside';
   } else if (route.screen === 'interior') {
     const m = s.months[route.mi] || s.months[0];
-    cfg = { mode: 'month', key: 'month-' + m.id, places: m.places.map(p => placeCfg(s, p)), kind: m.name };
+    cfg = m.dream ? { mode: 'dream', key: 'dream-' + m.id, dream: dreamCfg(s, m), focus: 'all', peek } : { mode: 'month', key: 'month-' + m.id, places: m.places.map(p => placeCfg(s, p)), kind: m.name };
+    if (m.dream && m.places.some(p => p.room === 'house' && p.status === 'done')) peekBtn = true;
     // a map they have only just moved on to: nothing is drawn on it yet
     const fresh0 = route.mi === 0 && s.months.length > 1 && m.places.every(p => !p.pairs.length && p.status !== 'done');
     if (fresh0) {
       title = 'Next up: ' + m.name;
       hint = `${WORDS[m.places.length] || m.places.length} ${m.places.length === 1 ? 'place' : 'places'} to build · tap Today’s prompt to begin`;
     } else {
-      title = m.name + (route.mi === 0 ? ' · in progress' : ''); hint = 'Drag to move around · two fingers to turn · tap a place to visit it';
+      title = m.name + (route.mi === 0 && m.places.some(p => p.status !== 'done') ? ' · in progress' : ''); hint = 'Drag to move around · two fingers to turn · tap a ' + (m.dream ? 'room' : 'place') + ' to visit it';
     }
     back = { label: 'All maps', to: { screen: 'stack' } };
   } else if (route.screen === 'place') {
     const hit = placeById(s, route.placeId);
     if (hit) {
       const { place, mi } = hit, n = place.pairs.length, done = place.status === 'done', total = placeTotal(place);
-      cfg = { mode: 'place', key: place.id, place: placeCfg(s, place), fresh };
+      const m = s.months[mi];
+      cfg = m.dream && place.room
+        ? { mode: 'dream', key: place.id, dream: dreamCfg(s, m), focus: place.room as DreamFocus, fresh: fresh >= 0 ? { room: place.room as RoomKey | 'house', i: fresh } : null, peek }
+        : { mode: 'place', key: place.id, place: placeCfg(s, place), fresh };
+      if (m.dream && m.places.some(p => p.room === 'house' && p.status === 'done') && fresh < 0) peekBtn = true;
       // the place's name stays a mystery until its last drawing goes in
       title = done ? place.name : '???';
       hint = !done && n === 0 ? `Next up in ${s.months[mi].name} · tap Today’s prompt to begin` : 'Drag to move around · two fingers to turn';
@@ -71,11 +80,16 @@ export function MapView({ route, go, dest }: { route: MapRoute; go: Go; dest: (d
       if (done) bookBtn = place.id;
       // the last drawing has just gone in: the place reveals itself on its own
       freshLast = fresh >= 0 && place.status === 'current' && n >= total;
+      // the house is still being built (front, walls, roof, door) before it reveals itself
+      if (freshLast && place.room === 'house') revealDelay = 7600;
       if (!done && !freshLast && n >= total && place.status === 'current') action = { label: 'See what we made', run: () => go({ screen: 'reveal' }) };
     }
   } else if (route.screen === 'reveal' && revealPlace) {
-    const p = { ...revealPlace }, solid = stage >= 1;
-    cfg = { mode: 'place', key: 'reveal', place: placeCfg(s, p, solid ? 'done' : 'current'), fade: solid };
+    const p = { ...revealPlace }, solid = stage >= 1, m0 = getState().months[0];
+    cfg = m0.dream && p.room
+      // a room of the Dream House: it is shown finished; the last one makes the whole house come alive
+      ? { mode: 'dream', key: 'reveal-' + (solid ? 1 : 0), dream: dreamCfg(s, m0, solid ? { placeId: p.id, status: 'done' } : undefined), focus: solid && m0.places.at(-1)?.id === p.id ? 'all' : (p.room as DreamFocus) }
+      : { mode: 'place', key: 'reveal', place: placeCfg(s, p, solid ? 'done' : 'current'), fade: solid };
     title = stage >= 2 ? '' : 'The last drawing goes in…';
     if (stage >= 2) stepper = { n: placeTotal(p), total: placeTotal(p), fresh: false, done: true };
     const lastOfMap = getState().months[0].places.at(-1)?.id === p.id;
@@ -92,27 +106,32 @@ export function MapView({ route, go, dest }: { route: MapRoute; go: Go; dest: (d
   // the caricatures they drew of each other walk around the places, finished or in progress
   if (cfg) cfg = { ...cfg, walkers: { d: s.faces.dadi, a: s.faces.child }, names: { d: s.names.dadi, a: s.names.child } };
   // ...and the map can be seen through either one's eyes (not while a new pair is rising out of the island)
-  const povAvail = (route.screen === 'place' && !!stepper && fresh < 0) || (route.screen === 'interior' && (s.months[route.mi] || s.months[0]).places.some(p => p.status !== 'locked'));
+  const povAvail = !peek && ((route.screen === 'place' && !!stepper && fresh < 0) || (route.screen === 'interior' && (s.months[route.mi] || s.months[0]).places.some(p => p.status !== 'locked' && (p.pairs.length > 0 || p.status === 'done'))));
   const who = (w: 'd' | 'a') => w === 'd' ? { name: s.names.dadi, face: s.faces.dadi, color: DADI } : { name: s.names.child, face: s.faces.child, color: CHILD };
   const me = pov && who(pov), other = pov && who(pov === 'd' ? 'a' : 'd');
 
   const onPick = useMemo(() => (pk: Pick) => {
     const st = getState();
     if (pk.type === 'month') go({ screen: 'interior', mi: pk.mi });
-    else if (route.screen === 'interior') { const m = st.months[route.mi]; const pl = m?.places[pk.pi]; if (pl && pl.status !== 'locked') go({ screen: 'place', placeId: pl.id }); }
+    else if (route.screen === 'interior') {
+      const m = st.months[route.mi], pl = pk.type === 'room' ? m?.places.find(p => p.room === pk.room) : m?.places[pk.pi];
+      if (pl && pl.status !== 'locked') go({ screen: 'place', placeId: pl.id });
+    }
   }, [route]);
 
   useEffect(() => {
     if (!freshLast) return;
-    const t = setTimeout(() => go({ screen: 'reveal' }), reduced ? 2500 : 4800);
+    const t = setTimeout(() => go({ screen: 'reveal' }), reduced ? 2500 : revealDelay);
     return () => clearTimeout(t);
   }, [freshLast]);
 
   const win = route.screen === 'reveal' && !!revealPlace && stage >= 2;
+  const winName = revealPlace && getState().months[0].places.at(-1)?.id === revealPlace.id && getState().months[0].places.length > 1 ? getState().months[0].name : revealPlace?.name;
   const showDock = route.screen !== 'reveal' && !action && !pov && !freshLast;
   return (
     <div className="screen mapbg">
       <Cloud fill="#E6F6F3" style={{ left: 60, top: 110, animation: 'drift 45s ease-in-out infinite alternate' }} />
+      <SkyBirds />
       <Cloud fill="#E6F6F3" w={240} style={{ right: 140, top: 150, animation: 'drift 60s ease-in-out infinite alternate-reverse' }} />
       {win && (
         <>
@@ -125,7 +144,7 @@ export function MapView({ route, go, dest }: { route: MapRoute; go: Go; dest: (d
       {cfg && <Map3D config={cfg} onPick={onPick} reducedMotion={reduced} pov={pov} onPov={setPov} />}
       {win && (
         <div className="win" role="status">
-          <div className="win-pop"><div className="win-card"><div className="win-name">{revealPlace!.name}</div><div className="win-done">Complete!</div></div></div>
+          <div className="win-pop"><div className="win-card"><div className="win-name">{winName}</div><div className="win-done">{revealPlace!.room === 'house' ? 'Built!' : 'Complete!'}</div></div></div>
         </div>
       )}
       {!pov && title && <div className="map-title"><div className="t">{title}</div>{hint && <div className="h">{hint}</div>}</div>}
@@ -170,6 +189,7 @@ export function MapView({ route, go, dest }: { route: MapRoute; go: Go; dest: (d
           {bookBtn && <button className="btn-primary" style={{ height: 46, padding: '0 18px', fontSize: 17, boxShadow: '0 5px 0 #B9481B', rotate: '0deg' }} onClick={() => go({ screen: 'book', placeId: bookBtn! })}>In our scrapbook</button>}
         </div>
       )}
+      {peekBtn && !pov && !action && <button className="btn-cream peek-btn" onClick={() => setPeek(v => !v)}>{peek ? 'Put the roof back' : 'Look inside'}</button>}
       {action && !pov && <div className="place-btn"><button className="btn-primary" style={{ height: 84, fontSize: 30 }} onClick={action.run}><Arrow />{action.label}</button></div>}
       {back && !pov && <Back label={back.label} onClick={() => go(back!.to)} />}
       {showDock && <Dock items={['home', 'book']} go={dest} />}

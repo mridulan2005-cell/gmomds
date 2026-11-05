@@ -8,9 +8,10 @@ export function Sketches({ go }: { go: Go }) {
   // the newest pair on the map
   const place = s.months[0].places.find(p => p.id === s.lastFresh?.placeId) || s.months[0].places.find(p => p.status === 'current');
   const pair = place?.pairs[place.pairs.length - 1];
-  const a = pair && s.drawings[pair.dadi], b = pair && s.drawings[pair.child];
+  // one shared drawing (the dream house) is shown once, as theirs together
+  const a = pair && s.drawings[pair.dadi], b = pair && !pair.single && s.drawings[pair.child];
   const cards = [
-    a && { d: a, owner: s.names.dadi, color: DADI, tint: '#C9D8F7', r: -3, delay: '0s' },
+    a && { d: a, owner: pair?.single ? `${s.names.dadi} & ${s.names.child}` : s.names.dadi, color: DADI, tint: pair?.single ? '#FFE0C2' : '#C9D8F7', r: pair?.single ? -1.5 : -3, delay: '0s' },
     b && { d: b, owner: s.names.child, color: CHILD, tint: '#F9CDBB', r: 2.5, delay: '.5s' },
   ].filter(Boolean) as { d: NonNullable<typeof a>; owner: string; color: string; tint: string; r: number; delay: string }[];
   return (

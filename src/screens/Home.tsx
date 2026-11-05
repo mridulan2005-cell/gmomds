@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Go } from '../App';
-import { Arrow, Cloud, Dock, Sun, type Dest } from '../components';
+import { Arrow, Cloud, Dock, SkyBirds, Sun, type Dest } from '../components';
 import { GearIcon } from '../icons';
 import { addSamplePairs, currentPlace, ensurePrompt, nextPromptAt, placeTotal, promptDone, readyToReveal, resetAll, update, useApp } from '../lib/store';
 
@@ -25,6 +25,7 @@ export function Home({ go, dest }: { go: Go; dest: (d: Dest) => void }) {
   return (
     <div className={'screen home' + (together ? ' together' : '')}>
       <Sun />
+      <SkyBirds />
       <Cloud style={{ left: -30, top: 70, animation: 'drift 40s ease-in-out infinite alternate' }} />
       <Cloud w={230} style={{ right: 230, top: '38%', animation: 'drift 55s ease-in-out infinite alternate-reverse' }} />
       <Cloud w={150} style={{ left: 110, bottom: 200, animation: 'drift 48s ease-in-out infinite alternate' }} />
@@ -34,7 +35,7 @@ export function Home({ go, dest }: { go: Go; dest: (d: Dest) => void }) {
       <div className="home-center">
         {ready ? (
           <>
-            <div className="pill">{total} pairs!</div>
+            <div className="pill">{total === 1 ? 'All drawn!' : `${total} pairs!`}</div>
             <div className="home-done">Our place is ready.</div>
             <button className="btn-primary big" onClick={() => go({ screen: 'reveal' })}><Arrow w={46} h={30} />See what we made</button>
           </>
@@ -60,7 +61,9 @@ export function Home({ go, dest }: { go: Go; dest: (d: Dest) => void }) {
         ) : s.prompt ? (
           <>
             {together ? <TogetherArt /> : <SoloArt />}
+            {s.prompt.title && <div className="prompt-title">{s.prompt.title}</div>}
             <div className="prompt">{s.prompt.text}</div>
+            {s.prompt.rule && <div className="prompt-rule"><i aria-hidden="true" />{s.prompt.rule}</div>}
             <button className="btn-primary big" style={{ marginTop: 14 }} onClick={() => go({ screen: 'scan', who: resumeChild ? 'child' : 'dadi' })}>
               <Arrow w={46} h={30} />{resumeChild ? `${s.names.child}'s turn` : "We're done!"}
             </button>

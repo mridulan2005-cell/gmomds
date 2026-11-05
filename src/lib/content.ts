@@ -52,7 +52,7 @@ export const TILES: [string, string][] = [['Animals', 'animals'], ['Birds', 'bir
 /** A hand-drawn picture for each tile (public/loves). */
 export const LOVE_ART: Record<string, string> = Object.fromEntries(
   ['animals', 'family', 'food', 'friends', 'garden', 'god', 'music', 'sea', 'snow', 'stories'].map(k => [k, `${import.meta.env.BASE_URL}loves/${k}.png`])
-    .concat([['birds', `${import.meta.env.BASE_URL}loves/birds.svg`], ['sky', `${import.meta.env.BASE_URL}loves/sky.svg`]]),
+    .concat([['birds', `${import.meta.env.BASE_URL}scenery/birds-pair.png`], ['sky', `${import.meta.env.BASE_URL}loves/sky.svg`]]),
 );
 export const LOVE_ICON: Record<string, { f: string[]; s: string[]; c: string }> = {
   animals: { ...ICON.cat, c: '#FFB26B' },
@@ -91,26 +91,65 @@ export const MAPS: MapKind[] = [
   { name: 'The Desert', places: ['The Oasis', 'The Cactus Garden', 'The Camel Fair', 'The Dunes'] },
 ];
 
-/** A prompt in a curated place; on a together day they draw on one sheet, side by side. */
-export interface PromptDef { text: string; together?: boolean }
-export interface PlaceDef { name: string; shape: 'A' | 'B' | 'C' | 'D'; color: string; theme: string; prompts?: PromptDef[] }
-export interface MapDef { name: string; places: PlaceDef[] }
-const pr = (text: string, together = false): PromptDef => (together ? { text, together } : { text });
+/**
+ * A prompt in a curated place; on a together day they draw on one sheet, side by side.
+ * `title` is a small heading above the prompt, `rule` a line shown under it (the dream house's door), and
+ * `single` a together prompt with one shared drawing, scanned once.
+ */
+export interface PromptDef { text: string; together?: boolean; title?: string; rule?: string; single?: boolean }
+/** The Dream House is one place made of rooms: each place of that map is one of them. */
+export type Room = 'lr' | 'kitchen' | 'house' | 'park';
+export interface PlaceDef { name: string; shape: 'A' | 'B' | 'C' | 'D'; color: string; theme: string; prompts?: PromptDef[]; room?: Room }
+export interface MapDef { name: string; places: PlaceDef[]; dream?: boolean }
+const pr = (text: string, o: Omit<PromptDef, 'text'> | boolean = {}): PromptDef => {
+  const x = typeof o === 'boolean' ? { together: o } : o;
+  return Object.fromEntries(Object.entries({ text, ...x }).filter(([, v]) => v !== undefined && v !== '' && v !== false)) as unknown as PromptDef;
+};
+const team = (text: string) => pr(text, { together: true, title: 'Collaborative Task' });
+/** The dream house bonus: one shared drawing, its door coloured brown so it can be found. */
+export const HOUSE_RULE = 'Colour the door brown. It has to be the darkest colour in your drawing.';
 
 /**
  * The first maps tell a little story, with their own prompts and their own number of places:
- * a one-place Welcome Party, then a Dream House of rooms. After them come the kinds of places in MAPS (four places each).
+ * a one-place Welcome Party, then the Dream House (Living Room, Kitchen, the house itself, then the Park in front of it).
+ * After them come the kinds of places in MAPS (four places each).
  */
 export const STORY_MAPS: MapDef[] = [
   { name: 'Welcome Party', places: [
     { name: 'Welcome Party', shape: 'D', color: '#F2A28A', theme: '', prompts: [pr('Draw something you’d bring to a party'), pr('Draw a song you’d dance to'), pr('Draw the party lights'), pr('Draw a gift for each other')] },
   ] },
-  { name: 'Dream House', places: [
-    { name: 'Living Room', shape: 'C', color: '#F6C778', theme: '', prompts: [pr('Draw the other person’s perfect evening.'), pr('What can you see outside your dream window?'), pr('Draw something you’d keep forever.'), pr('Fill one room with things you both love.', true)] },
-    { name: 'Kitchen', shape: 'A', color: '#F2A28A', theme: '', prompts: [pr('Draw a food that takes you back to a happy memory.'), pr('If you were a dish, what would you taste like?'), pr('Who would you invite to a special dinner?'), pr('Set one big table with both your favourite foods.', true)] },
-    { name: 'Park', shape: 'B', color: '#9BD770', theme: 'garden', prompts: [pr('Draw each other with your ages swapped.'), pr('Draw something you’ve always wanted to do.'), pr('Draw a place you’d love to take each other.')] },
+  { name: 'Dream House', dream: true, places: [
+    { name: 'Living Room', shape: 'C', color: '#F6C778', theme: '', room: 'lr', prompts: [
+      pr('Draw one object in the room that Dadi loves the most.', { title: 'Activities in the Room' }),
+      pr('Draw your dream pet animal or bird.', { title: 'Window' }),
+      pr('Draw something you keep on a shelf.', { title: 'Memory Shelf' }),
+      team('Draw the furniture, decorations and things you would want in the living room.'),
+    ] },
+    { name: 'Kitchen', shape: 'A', color: '#F2A28A', theme: '', room: 'kitchen', prompts: [
+      pr('Draw your favorite food in a bowl or a plate.', { title: 'Favorite Dishes' }),
+      pr('Draw what grandma uses to make chapattis.', { title: 'Special Dish' }),
+      pr('Draw something that keeps your food cold.', { title: 'Special Guests' }),
+      team('Draw a table full of your favorite dishes.'),
+    ] },
+    { name: 'Dream House', shape: 'C', color: '#E86A4A', theme: '', room: 'house', prompts: [
+      pr('Draw ur dream house.', { together: true, single: true, title: 'Bonus', rule: HOUSE_RULE }),
+    ] },
+    { name: 'Park', shape: 'B', color: '#9BD770', theme: 'garden', room: 'park', prompts: [
+      pr('Draw something you’d sit under on a hot day.'),
+      pr('Draw something you love to play with outside.', { title: 'Day Dreaming' }),
+      pr('Draw something that flies in the air.', { title: 'Day Out' }),
+      team('Build a bridge to the fantasy world from the park!'),
+    ] },
   ] },
 ];
+
+/** What each room says as each of its prompts builds a little more of it. */
+export const ROOM_NOTES: Record<Room, string[]> = {
+  lr: ['A wooden floor, a sofa, a rug and a lamp! The living room is starting.', 'A window! Your pet sits on the sill.', 'A shelf on the wall, with your things on top.', 'A plant and a picture frame. The living room is ready!'],
+  kitchen: ['Tiles and a stove! Your food sits on the counter.', 'A kitchen window lets the light in.', 'A fridge to keep everything cold.', 'A dining table, full of your favourite dishes!'],
+  house: ['We found the door! Your dream house is going up around the rooms.'],
+  park: ['Trees, a bench and a pond. The park is growing!', 'A slide and a swing to play on.', 'Butterflies, a lamppost and things flying in the air.', 'A bridge to a floating fantasy island!'],
+};
 
 /** The Welcome Party's first pairs come already drawn ([Dadi's, the grandchild's]), one per prompt but the last. */
 export const WELCOME_DRAWN: [string, string][] = [['drum', 'mango'], ['note', 'bell'], ['diya', 'sun']];
