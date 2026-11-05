@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Go } from '../App';
 import { Arrow } from '../components';
-import { DADI, CHILD, INK, LOVE_ICON, TILES } from '../lib/content';
+import { DADI, CHILD, INK, LOVE_ART, LOVE_ICON, TILES } from '../lib/content';
 import { finishOnboarding, getState } from '../lib/store';
 import type { PersonId } from '../lib/types';
 
@@ -81,10 +81,12 @@ export function Onboarding({ go }: { go: Go }) {
               return (
                 <button key={k} className="tile" onClick={() => toggle(k)} aria-pressed={sel}
                   style={{ background: sel ? (who === 'dadi' ? 'rgba(47,95,208,.14)' : 'rgba(228,87,46,.14)') : 'transparent', color: sel ? color : INK, rotate: sel ? '-3deg' : '0deg', scale: sel ? '1.05' : '1' }}>
-                  <svg viewBox="0 0 64 64" width="80" height="80" fill="none" strokeLinecap="round" strokeLinejoin="round">
-                    <path d={ic.f.join(' ')} fill={sel ? ic.c : 'currentColor'} fillOpacity={sel ? 0.6 : 0.15} stroke="currentColor" strokeWidth="2.8" />
-                    <path d={ic.s.join(' ')} stroke="currentColor" strokeWidth="2.8" />
-                  </svg>
+                  {LOVE_ART[k] ? <img className="tile-art" src={LOVE_ART[k]} alt="" draggable={false} /> : (
+                    <svg viewBox="0 0 64 64" width="80" height="80" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                      <path d={ic.f.join(' ')} fill={sel ? ic.c : 'currentColor'} fillOpacity={sel ? 0.6 : 0.15} stroke="currentColor" strokeWidth="2.8" />
+                      <path d={ic.s.join(' ')} stroke="currentColor" strokeWidth="2.8" />
+                    </svg>
+                  )}
                   {label}
                   {/* what the grandchild picked, so the grown-up can see */}
                   {who === 'dadi' && picks.child.includes(k) && <div className="dot" />}

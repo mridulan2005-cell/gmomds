@@ -49,6 +49,11 @@ function hash(s: string) { let h = 0; for (let i = 0; i < s.length; i++) h = (h 
 
 /** The onboarding "what do you love?" tiles: broad interests, each with its own little icon and colour. */
 export const TILES: [string, string][] = [['Animals', 'animals'], ['Birds', 'birds'], ['Sky', 'sky'], ['Sea', 'sea'], ['Snow', 'snow'], ['Garden', 'garden'], ['Stories', 'stories'], ['Family', 'family'], ['Friends', 'friends'], ['Food', 'food'], ['God', 'god'], ['Music', 'music']];
+/** A hand-drawn picture for each tile (public/loves). */
+export const LOVE_ART: Record<string, string> = Object.fromEntries(
+  ['animals', 'family', 'food', 'friends', 'garden', 'god', 'music', 'sea', 'snow', 'stories'].map(k => [k, `${import.meta.env.BASE_URL}loves/${k}.png`])
+    .concat([['birds', `${import.meta.env.BASE_URL}loves/birds.svg`], ['sky', `${import.meta.env.BASE_URL}loves/sky.svg`]]),
+);
 export const LOVE_ICON: Record<string, { f: string[]; s: string[]; c: string }> = {
   animals: { ...ICON.cat, c: '#FFB26B' },
   birds: { ...ICON.bird, c: '#FFC93C' },

@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" width="400" height="300">
+  <defs>
+    <!-- wobbly marker line and rough crayon fill, like the hand-drawn tiles -->
+    <filter id="line" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="5"/></filter>
+    <filter id="fill" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.09" numOctaves="3" seed="2"/><feDisplacementMap in="SourceGraphic" scale="9"/></filter>
+  </defs>
+  <!-- the sun, peeking out -->
+  <circle cx="282" cy="108" r="46" fill="#FBD34D" filter="url(#fill)" transform="translate(7 6)"/>
+  <g filter="url(#line)" fill="none" stroke="#1E1B26" stroke-width="7" stroke-linecap="round">
+    <circle cx="282" cy="108" r="46"/>
+    <path d="M282 38 V22 M232 58 L221 47 M332 58 L343 47 M352 108 H368 M212 108 H198"/>
+    <path d="M262 98 Q270 90 278 98 M288 98 Q296 90 304 98"/>
+  </g>
+  <!-- the cloud in front -->
+  <path d="M70 222 C40 222 35 177 75 172 C70 132 120 112 150 137 C165 97 235 92 250 137 C275 117 330 127 325 172 C365 172 370 222 330 224 Z" fill="#FFFFFF"/>
+  <path d="M70 222 C40 222 35 177 75 172 C70 132 120 112 150 137 C165 97 235 92 250 137 C275 117 330 127 325 172 C365 172 370 222 330 224 Z" fill="#AFCFF5" filter="url(#fill)" transform="translate(9 9)"/>
+  <g filter="url(#line)" fill="none" stroke="#1E1B26" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M70 222 C40 222 35 177 75 172 C70 132 120 112 150 137 C165 97 235 92 250 137 C275 117 330 127 325 172 C365 172 370 222 330 224 Z"/>
+    <path d="M150 182 Q160 172 170 182 M210 182 Q220 172 230 182"/>
+    <path d="M178 198 Q190 208 202 198"/>
+    <!-- little sparkles -->
+    <path d="M60 70 V100 M45 85 H75 M49 74 L71 96 M71 74 L49 96" stroke-width="5"/>
+    <path d="M360 238 V258 M350 248 H370 M353 241 L367 255 M367 241 L353 255" stroke-width="5"/>
+  </g>
+</svg>
