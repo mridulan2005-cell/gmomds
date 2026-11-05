@@ -321,3 +321,7 @@ a.btn-cream { text-decoration: none; }
 /* the scan found the door in their drawing of the house */
 .door-tag { position: absolute; border: 5px solid #FFE66D; border-radius: 6px; box-shadow: 0 0 0 3px #3d2b22; animation: pulse 0.5s ease-in-out 6; pointer-events: none; }
 .door-tag span { position: absolute; left: 50%; bottom: calc(100% + 10px); translate: -50% 0; padding: 4px 14px; border-radius: 999px; background: var(--sun); color: #3d2b22; font-weight: 900; font-size: 20px; white-space: nowrap; box-shadow: 0 0 0 3px #3d2b22; }
+/* skip (bottom left, very small): a placeholder drawing for the prompt instead of a scan */
+.skip-scan { position: absolute; left: calc(12px + env(safe-area-inset-left)); bottom: calc(12px + env(safe-area-inset-bottom)); width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%; background: rgba(61, 43, 34, .1); color: rgba(61, 43, 34, .55); display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 2; }
+.skip-scan:active { background: rgba(61, 43, 34, .2); }
+.placeholder-art { width: 70%; height: 70%; }

@@ -2,8 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { Go } from '../App';
 import { Arrow, Perforation } from '../components';
 import { CheckIcon } from '../icons';
-import { DADI, CHILD, QUICK_PICKS, fillFor, guessFor } from '../lib/content';
-import { addDrawing, getState, replaceDrawing, saveScan, uid, updateDrawing, useApp } from '../lib/store';
+import { DADI, CHILD, INK, QUICK_PICKS, fillFor, guessFor } from '../lib/content';
+import { addDrawing, getState, placeholderDrawing, replaceDrawing, saveScan, uid, updateDrawing, useApp } from '../lib/store';
 import { analyzeHouse } from '../map/house';
 import type { Drawing, Guess } from '../lib/types';
 import { detect, grab, process, recognise, thumb, thumbDiff, toBlob, toCanvas } from '../scan/scanner';
@@ -159,6 +159,17 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
     } catch (e) { console.error(e); setErr('failed'); setPhase('error'); }
   };
 
+  // skip: no paper to hand, so a placeholder drawing for the prompt stands in for the scan
+  const skip = () => {
+    if (phaseRef.current === 'processing' || phaseRef.current === 'scanning') return;
+    const st = getState(), old = replacing.current ? st.drawings[replacing.current] : undefined;
+    const prompt = (old && st.months.flatMap(m => m.places.flatMap(p => p.pairs)).find(p => p.promptId === old.promptId)?.prompt) || st.prompt?.text || '';
+    const d = placeholderDrawing(who, old ? old.promptId : st.prompt?.id || '', prompt, shared);
+    if (old) replaceDrawing(old.id, d); else addDrawing(d);
+    replacing.current = d.id; lastCapture = null;
+    setStill(null); setCropUrl(null); setErr(null); setFixing(false); setDoor(null); setDrawingId(d.id); setPhase('done'); stopCamera();
+  };
+
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; e.target.value = ''; if (!file) return;
     try { const bmp = await createImageBitmap(file); const f = grab(bmp, 1600); bmp.close(); if (f) void capture(f); }
@@ -195,6 +206,14 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
             {live && listening && <div className="say-take">🎤 Say “take”</div>}
             {phase === 'nocam' && <div className="paper-slot">Paper goes here</div>}
             {(phase === 'processing' || phase === 'error') && still && <img className="still" src={still} alt="" style={{ objectFit: 'cover', opacity: phase === 'error' ? 0.45 : 1 }} />}
+            {phase === 'done' && !cropUrl && drawing?.source === 'sample' && (
+              <div className="scan-paper">
+                <svg viewBox="-4 -4 72 72" className="placeholder-art" aria-label={drawing.label}>
+                  {drawing.paths.f.map((d, i) => <path key={'f' + i} d={d} fill={drawing.fillColor} stroke={INK} strokeWidth={2.5} strokeLinejoin="round" />)}
+                  {drawing.paths.s.map((d, i) => <path key={'s' + i} d={d} fill="none" stroke={INK} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />)}
+                </svg>
+              </div>
+            )}
             {(phase === 'scanning' || phase === 'done') && cropUrl && (
               <div className="scan-paper">
                 <img src={cropUrl} alt="The scanned drawing" style={{ animation: phase === 'scanning' ? 'develop 2.4s ease-in-out both' : 'none' }} />
@@ -236,6 +255,11 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
         </div>
       </div>
       <input ref={fileIn} type="file" accept="image/*" hidden onChange={onFile} />
+      {(live || phase === 'nocam' || phase === 'error') && (
+        <button className="skip-scan" onClick={skip} aria-label="Skip: use a placeholder drawing" title="Skip: use a placeholder drawing">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M6 5.5v13l9.5-6.5z" /><rect x="16.5" y="5.5" width="2.5" height="13" rx="1" /></svg>
+        </button>
+      )}
       {fixing && drawing && <FixSheet d={drawing} onPick={choose} close={() => setFixing(false)} />}
     </div>
   );

@@ -3,6 +3,7 @@ import { useSyncExternalStore } from 'react';
 import { get, set, del, keys } from 'idb-keyval';
 import type { AppState, Drawing, Month, Pair, Place, PersonId, Prompt } from './types';
 import { LOVE_PROMPTS, THEMES, ICON, MAPS, PAIRS, WELCOME_DRAWN, guessFor, fillFor, mapDef } from './content';
+import { likelyFor } from './likely';
 
 const KEY = 'dadis-map:state';
 /** Placeholder caricatures, until they draw each other. */
@@ -46,6 +47,21 @@ function sampleDrawing(s: AppState, who: PersonId, promptId: string, kind: strin
   const g = guessFor(kind), id = uid();
   const d: Drawing = { id, personId: who, promptId, createdAt, paths: { ...ICON[kind] }, kind, label: g.label, motion: g.motion, place: g.place, fillColor: fillFor(kind), confidence: 1, alternatives: [], source: 'sample' };
   s.drawings[id] = d; return d;
+}
+
+/**
+ * A placeholder drawing for a prompt, without a scan (the skip on the scan screen, for trying the app without paper):
+ * the prototype's icon of something likely for that prompt. Dadi and the grandchild get different ones when they can.
+ */
+export function placeholderDrawing(who: PersonId, promptId: string, prompt: string, single = false): Drawing {
+  const likely = likelyFor(prompt).map(w => (w === 'house' ? 'home' : w)).filter(k => ICON[k] && k !== 'home');
+  const any = Object.keys(ICON).filter(k => k !== 'home');
+  const kind = single ? 'home' : likely.length ? likely[(who === 'dadi' ? 0 : 1) % likely.length] : any[Math.floor(Math.random() * any.length)];
+  const g = guessFor(kind);
+  return {
+    id: uid(), personId: who, promptId, createdAt: Date.now(), paths: { ...ICON[kind] }, kind, label: single ? 'our dream house' : g.label,
+    motion: g.motion, place: g.place, fillColor: fillFor(kind, who === 'dadi' ? 0 : 1), confidence: 1, alternatives: [], source: 'sample',
+  };
 }
 
 function fresh(): AppState {
