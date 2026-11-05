@@ -30,10 +30,12 @@ export interface DreamCfg {
   rooms: Partial<Record<RoomKey, RoomCfg>>;
   /** id: a scanned drawing (its image comes from artLoader); url: a sample picture */
   house: { status: 'locked' | 'current' | 'done'; id?: string; url?: string };
-  /** the whole map is finished: it comes alive */
+  /** the whole map is finished: it comes alive (and a pin appears at its edge, until the bridge is built) */
   alive?: boolean;
+  /** the bridge from the pin to the next map is built */
+  bridged?: boolean;
 }
-export type DreamFocus = 'all' | 'lr' | 'kitchen' | 'house' | 'park';
+export type DreamFocus = 'all' | 'lr' | 'kitchen' | 'house' | 'park' | 'bridge';
 /** the caricatures they drew of each other (image URLs): d = Dadi, a = the grandchild */
 export interface Walkers { d: string; a: string }
 export type MapConfig = (
@@ -41,14 +43,15 @@ export type MapConfig = (
   | { mode: 'month'; key: string; places: PlaceCfg[]; kind?: string }
   | { mode: 'stack'; key: string; months: MonthCfg[] }
   /** fresh: the newest drawing(s), which rise in (i = the prompt in that room); peek: the roof is lifted off */
-  | { mode: 'dream'; key: string; dream: DreamCfg; focus?: DreamFocus; fresh?: { room: RoomKey | 'house'; i: number } | null; peek?: boolean }
+  | { mode: 'dream'; key: string; dream: DreamCfg; focus?: DreamFocus; fresh?: { room: RoomKey | 'house' | 'bridge'; i: number } | null; peek?: boolean }
 ) & { walkers?: Walkers; names?: { d: string; a: string } };
 type DreamMapCfg = Extract<MapConfig, { mode: 'dream' }>;
 export type Pick = { type: 'place'; pi: number } | { type: 'month'; mi: number } | { type: 'room'; room: RoomKey | 'house' }
   /** a locked place's padlock (mi: which map, when tapped in the stack) */
   | { type: 'lock'; mi?: number; pi?: number; room?: RoomKey | 'house' };
 /** whose eyes the map is seen through: d = Dadi, a = the grandchild, null = the usual view from above */
-export type Pov = 'd' | 'a' | null;
+/** walking around the map in first person, as a third character (p), not as Dadi or the grandchild */
+export type Pov = 'p' | null;
 
 const DADI = '#2F5FD0', CHILD = '#E4572E', INK = '#3d2b22', DEPTH = 6, BT = 2.4, STEP = 900;
 const SLOTS = [[120, 110], [245, 100], [370, 110], [90, 205], [200, 212], [310, 205], [420, 200]];
@@ -106,8 +109,10 @@ const ROOMS: Record<RoomKey, { x: number; z: number; w: number; d: number; floor
 const DREAM_VIEW: Record<DreamFocus, [number[], number[]]> = {
   // the whole map takes in the fantasy island on the right; the park, its bridge
   all: [[190, 110, 0], [190, 1800, 2250]], lr: [[-190, 60, -160], [-190, 780, 640]], kitchen: [[190, 60, -160], [190, 780, 640]],
-  park: [[260, 0, 220], [260, 1150, 1550]], house: [[0, 330, -120], [0, 1150, 2350]],
+  park: [[260, 0, 220], [260, 1150, 1550]], house: [[0, 330, -120], [0, 1150, 2350]], bridge: [[720, 60, 220], [720, 1100, 1500]],
 };
+/** where the pin stands at the edge of the finished Dream House (the bridge to the next map starts there) */
+const PIN = { x: 572, z: 220 };
 /** their house drawings, read once */
 const HOUSES = new Map<string, HouseShape>();
 interface DoorState { piv: THREE.Group; x0: number; x1: number; cx: number; open: number; forced: number | null; hl: THREE.Group; tag: THREE.Sprite }
@@ -213,7 +218,7 @@ type Stop = { x: number; z: number; y?: number; p?: number; act?: 'sniff' | 'loo
 /** ground height where they may stand (in the walker's group), or null where they can't */
 type Ground = (x: number, z: number) => number | null;
 interface Walker {
-  s: THREE.Sprite; G: THREE.Group; who: 'd' | 'a'; legs: { a: Stop; b: Stop; t0: number; pause: number; dur: number }[]; total: number; h: number; off: number; face: number; hop: boolean; y0: number;
+  s: THREE.Sprite; G: THREE.Group; who: 'd' | 'a' | 'p'; legs: { a: Stop; b: Stop; t0: number; pause: number; dur: number }[]; total: number; h: number; off: number; face: number; hop: boolean; y0: number;
   ground: Ground; speed: number; waveUntil: number; parked: { x: number; z: number; y: number } | null;
 }
 interface Item { d: DrawCfg; base: THREE.Group; mover: THREE.Group; sc: THREE.Group; inner: THREE.Group; oa: THREE.Group; ob: THREE.Group; sh: THREE.Mesh; S: number; ph: number; rise: number; pop: number }
@@ -248,6 +253,11 @@ export class MapScene {
   private huds: THREE.Object3D[] = [];
   private bubbles: { s: THREE.Sprite; t0: number; y0: number; dead?: boolean }[] = [];
   private pov: PovState | null = null;
+  /** the one walking around (first person): a third character, starting near Dadi */
+  private me: Walker | null = null;
+  /** the pin at the edge of the finished map: reaching it on foot unlocks the bridge */
+  private pinPos: { x: number; z: number } | null = null; private pinFired = false;
+  onPin: () => void = () => {};
   private joy = { x: 0, y: 0 }; private keys = new Set<string>(); private joyEl: HTMLDivElement; private lt = 0;
   private eye = new THREE.Vector3(); private look = new THREE.Vector3(); private dc = new THREE.PerspectiveCamera();
   private faceTex = new Map<string, THREE.Texture>();
@@ -850,8 +860,10 @@ export class MapScene {
       cv.getSpacedPoints(Math.round(cv.getLength() / 34)).forEach(p => { if (Math.hypot(p.x - 380, p.z - 300) < 80) return; const s = new THREE.Mesh(dot, dm); s.position.copy(p); G.add(s); });
     }
     if (pn >= 3 && !lite) ['bfly1', 'bfly2', 'bee'].forEach((k, i) => this.flyer(G, k, -200 + i * 220, 240 - i * 30, 60, { size: 28, ph: i * 2, r: 50, at: fr && fr.room === 'park' && fr.i === 2 ? t0 + 1.5 : 0 }));
-    if (pn >= 4) {
-      const fP = !!fr && fr.room === 'park' && fr.i === 3, B = new THREE.Group(), wood = this.toon('#C98B5A'), rail: THREE.Vector3[][] = [[], []];
+    // the pin at the edge of the finished map, until the bridge is built: walking to it unlocks the bridge's prompt
+    if (cfg.dream.alive && !cfg.dream.bridged) this.pin(G, lite);
+    if (cfg.dream.bridged) {
+      const fP = !!fr && fr.room === 'bridge', B = new THREE.Group(), wood = this.toon('#C98B5A'), rail: THREE.Vector3[][] = [[], []];
       const plank = this.own(new THREE.BoxGeometry(15, 4, 64)), post = this.own(new THREE.BoxGeometry(3, 30, 3));
       for (let i = 0; i < 14; i++) {
         const u = i / 13, x = 600 + u * 230, y = Math.sin(Math.PI * u) * 40 + u * 92, p = new THREE.Mesh(plank, wood); p.position.set(x, y, 220); B.add(p);
@@ -866,6 +878,8 @@ export class MapScene {
       const ico = this.own(new THREE.IcosahedronGeometry(1, 0)), sp: THREE.Mesh[] = [];
       for (let i = 0; i < 9; i++) { const s = new THREE.Mesh(ico, this.basic('#FFE66D')); s.scale.setScalar(6); s.position.set(-120 + R() * 240, 130 + R() * 120, -80 + R() * 160); I.add(s); sp.push(s); }
       this.loops.push(t => sp.forEach((s, i) => s.scale.setScalar(4 + 3 * Math.abs(Math.sin(t * 2 + i)))));
+      // the next map is a surprise
+      const iq = this.sprite('?', { size: 150, color: '#8E7FD0' }); iq.position.set(0, 150, 0); I.add(iq); this.qs.push(iq); this.huds.push(iq);
       G.add(I); if (fP) { grow(B, 0.3); grow(I, 0.6); }
     }
     // the house stands as soon as its drawing is in (it builds itself then), before the reveal marks it done
@@ -892,7 +906,7 @@ export class MapScene {
     // the two of them walk about: in and out of the house through its door, and round the park
     if (this.cfg?.walkers && !lite && (!!src || Object.values(rooms).some(rr => (rr?.n || 0) > 0))) {
       const P = (x: number, z: number, p = 0, act: Stop['act'] = null, f?: 1 | -1, door = false): Stop => ({ x, z, p, act, f, door });
-      const built = !!src, pDone = pn >= 4;
+      const built = !!src, pDone = !!cfg.dream.bridged;
       const ground: Ground = (x, z) => {
         if (pDone) { if (x > 590 && x < 840 && z > 192 && z < 248) { const u = clamp((x - 600) / 230, 0, 1); return Math.sin(Math.PI * u) * 40 + u * 92; } if (Math.hypot(x - 960, z - 220) < 135) return 92; }
         if (x < -600 || x > 600 || z < -360 || z > 400) return null; if (pn >= 1 && Math.hypot(x - 380, z - 300) < 72) return null;
@@ -911,6 +925,30 @@ export class MapScene {
     return G;
   }
 
+  /** A red pin bobbing at the edge of the map; while walking around, a trail of light leads from the house to it. */
+  private pin(G: THREE.Group, lite: boolean) {
+    const pin = this.face(import.meta.env.BASE_URL + 'dream/pin_red.png', lite ? 150 : 120); pin.renderOrder = 6; pin.position.set(PIN.x, 0, PIN.z); G.add(pin);
+    const psh = new THREE.Mesh(this.disc ||= new THREE.CircleGeometry(1, 24), this.own(new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.18, depthWrite: false })));
+    psh.rotation.x = -Math.PI / 2; psh.scale.set(28, 16, 1); psh.position.set(PIN.x, 1.5, PIN.z); G.add(psh);
+    let TR: THREE.Group | null = null, N = 1;
+    const tiles: { b: THREE.Mesh; mt: THREE.MeshBasicMaterial; i: number }[] = [], c0 = new THREE.Color('#6E95E8'), c1 = new THREE.Color('#F4F8FF');
+    if (!lite) {
+      this.pinPos = { x: PIN.x, z: PIN.z }; TR = new THREE.Group(); TR.visible = false; G.add(TR); const T = TR;
+      const R = rnd(11), cv = new THREE.CatmullRomCurve3([[0, 80], [150, 140], [300, 190], [460, 205], [540, 218]].map(([x, z]) => new THREE.Vector3(x, 0, z))), tg = this.own(new THREE.BoxGeometry(34, 4, 34));
+      N = Math.round(cv.getLength() / 48);
+      cv.getSpacedPoints(N).forEach((p, i) => {
+        const tn = cv.getTangentAt(Math.min(1, i / N)), mt = this.own(new THREE.MeshBasicMaterial({ color: '#6E95E8' })), b = new THREE.Mesh(tg, mt);
+        b.position.set(p.x, 3, p.z); b.rotation.y = Math.atan2(tn.x, tn.z) + Math.PI / 4 + (R() - 0.5) * 0.4; b.scale.set(0.8 + R() * 0.35, 1, 0.7 + R() * 0.35); T.add(b); tiles.push({ b, mt, i });
+      });
+    }
+    this.loops.push(t => {
+      pin.position.y = this.reducedMotion ? 6 : Math.abs(Math.sin(t * 2.2)) * 16; psh.scale.set(28 - pin.position.y * 0.4, 16 - pin.position.y * 0.25, 1);
+      // the trail shows only while walking around, with a pulse of light running along it towards the pin
+      if (!TR) return; TR.visible = !!this.pov; if (!TR.visible) return;
+      tiles.forEach(o => { const u = (((t * 0.32 - o.i / N) % 1) + 1) % 1, g = u < 0.18 ? 1 - u / 0.18 : 0; o.mt.color.lerpColors(c0, c1, g * 0.85); o.b.position.y = 3 + g * 5; });
+    });
+  }
+
   private frameDream(f: DreamFocus) {
     const key = 'dream:' + f; if (this.mode === key) return; this.mode = key; const c = this.controls, cam = this.camera;
     const F = DREAM_VIEW[f] || DREAM_VIEW.all;
@@ -924,7 +962,6 @@ export class MapScene {
     const mg = m.dream ? this.dream({ mode: 'dream', key: '', dream: m.dream }, { lite: true, mi: i }) : this.month(m.places, { labels: false, lite: true, mi: i });
     if (m.dream) mg.userData.alive = true;
     mg.scale.setScalar(0.85); mg.position.y = mg.userData.alive ? 72 : 34; B.add(mg);
-    if (m.current) mg.traverse(o => { const mesh = o as THREE.Mesh; if (mesh.isMesh) { const fix = (x: THREE.Material) => { const c = this.own(x.clone()); c.transparent = true; c.opacity = Math.min(x.opacity, 0.5); c.depthWrite = false; return c; }; mesh.material = Array.isArray(mesh.material) ? mesh.material.map(fix) : fix(mesh.material); } });
     const s = this.sprite(m.name, { size: 52, pill: true, bg: m.current ? '#FFF3D1' : INK, color: m.current ? INK : '#FFF3D1', k: 1.3 }); s.position.set(-990, 40, 0); B.add(s);
     this.pickables.push(B); return B;
   }
@@ -932,7 +969,7 @@ export class MapScene {
   private build(cfg: MapConfig) {
     this.cfg = cfg; this.root.clear(); this.clearOwned();
     this.items = []; this.tweens = []; this.qs = []; this.pickables = []; this.grows = []; this.streams = []; this.loops = []; this.fx = [];
-    this.flows = []; this.sway = []; this.sheep = []; this.pets = []; this.clouds = []; this.ripples = []; this.walkers = []; this.plants = []; this.huds = []; this.critters = []; this.door = null;
+    this.flows = []; this.sway = []; this.sheep = []; this.pets = []; this.clouds = []; this.ripples = []; this.walkers = []; this.plants = []; this.huds = []; this.critters = []; this.door = null; this.me = null; this.pinPos = null;
     this.bubbles.forEach(b => this.scene.remove(b.s)); this.bubbles = [];
     if (this.pov) { this.pov = null; this.camera.fov = 30; this.camera.updateProjectionMatrix(); this.mode = null; this.joyEl.style.display = 'none'; this.keys.clear(); this.onPov(null); }
     if (cfg.mode === 'place') this.root.add(this.island(cfg.place, { fresh: cfg.fresh, fade: cfg.fade, q: true, S: 76, walk: true }));
@@ -985,21 +1022,29 @@ export class MapScene {
     const rc = new THREE.Raycaster(); rc.setFromCamera(v, this.camera);
     for (const h of rc.intersectObjects(this.pickables, true)) {
       let o: THREE.Object3D | null = h.object; while (o && !o.userData.pick && !o.userData.walker) o = o.parent; if (!o) continue;
-      // tapping one of them: see the map through their eyes
-      if (o.userData.walker) { this.setPov((o.userData.walker as Walker).who); return; }
+      if (o.userData.walker) continue;
       this.onPick(o.userData.pick); return;
     }
   }
 
-  /** See the map through Dadi's or the grandchild's eyes (null: back to the view from above). */
+  /** Walk around the map in first person as a third character (null: back to the view from above). */
   setPov(who: Pov, silent = false) {
-    const cam = this.camera, W = who ? this.walkers.find(w => w.who === who) : undefined;
+    const cam = this.camera; let W: Walker | undefined;
+    if (who) {
+      // they start next to Dadi (or the grandchild), on the same ground
+      const ref = this.walkers.find(w => w.who === 'd') || this.walkers[0];
+      if (ref && (!this.me || this.me.G !== ref.G)) {
+        const s = new THREE.Sprite(); s.position.set(ref.s.position.x, ref.s.position.y, ref.s.position.z + 1);
+        this.me = { s, G: ref.G, who: 'p', legs: [], total: 0, h: ref.who === 'd' ? ref.h : ref.h / 0.9, off: 0, face: 1, hop: false, y0: ref.y0, ground: ref.ground, speed: ref.speed, waveUntil: 0, parked: null };
+      }
+      W = ref ? this.me! : undefined;
+    }
     if (who && !W) { this.setPov(null); return; }
     if (this.pov && W && this.pov.w === W) return;
     // the one we leave stays where we walked them to
     if (this.pov) { const o = this.pov.w; o.s.visible = true; if (W) o.parked = { x: this.pov.x, z: this.pov.z, y: this.pov.gy }; }
     if (!W) {
-      this.huds.forEach(s => (s.visible = true));
+      this.pinFired = false; this.huds.forEach(s => (s.visible = true));
       if (this.pov) { this.pov = null; this.walkers.forEach(w => { w.parked = null; w.s.visible = true; }); cam.fov = 30; cam.updateProjectionMatrix(); const m = this.mode!; this.mode = null; this.frame(m); }
       this.joyEl.style.display = 'none'; this.keys.clear(); if (!silent) this.onPov(null); return;
     }
@@ -1007,8 +1052,8 @@ export class MapScene {
     if (W.parked) ({ x, z, y: gy } = W.parked);
     else { x = W.s.position.x; z = W.s.position.z; gy = W.ground(x, z) ?? W.s.position.y - W.y0; }
     W.parked = null; W.s.visible = false;
-    // start out looking at the other one, a few steps back so they are in view
-    const other = this.walkers.find(w => w !== W); let yaw = Math.atan2(-x, -z);
+    // start out looking at Dadi, a few steps back so she is in view
+    const other = this.walkers.find(w => w.who === 'd') || this.walkers[0]; let yaw = Math.atan2(-x, -z);
     if (other) {
       const ox = other.parked ? other.parked.x : other.s.position.x, oz = other.parked ? other.parked.z : other.s.position.z;
       let dx = ox - x, dz = oz - z, dd = Math.hypot(dx, dz);
@@ -1041,6 +1086,8 @@ export class MapScene {
     const b = this.reducedMotion ? 1 : Math.min(1, (n - P.t0) / 0.9);
     if (b < 1) { const e = b * b * (3 - 2 * b); this.dc.position.copy(eye); this.dc.lookAt(tg); cam.position.lerpVectors(P.sp, eye, e); cam.quaternion.slerpQuaternions(P.sq, this.dc.quaternion, e); cam.fov = P.sf + (64 - P.sf) * e; cam.updateProjectionMatrix(); }
     else { if (cam.fov !== 64) { cam.fov = 64; cam.updateProjectionMatrix(); } cam.position.copy(eye); cam.lookAt(tg); }
+    // walking up to the pin unlocks the bridge
+    if (this.pinPos && !this.pinFired && Math.hypot(P.x - this.pinPos.x, P.z - this.pinPos.z) < 80) { this.pinFired = true; setTimeout(() => this.onPin(), 300); }
   }
 
   private bubble(text: string, pos: THREE.Vector3, o: { bg?: string; color?: string } = {}) {
@@ -1054,9 +1101,9 @@ export class MapScene {
     const rc = new THREE.Raycaster(); rc.setFromCamera(v, this.camera);
     const hit = rc.intersectObjects([...this.items.map(i => i.base), ...this.walkers.filter(w => w !== P.w).map(w => w.s), ...this.plants, ...this.pets], true)[0]; if (!hit) return;
     let o: THREE.Object3D | null = hit.object; while (o && !o.userData.item && !o.userData.walker && !o.userData.plant && !o.userData.say) o = o.parent; if (!o) return;
-    const n = now(), names = this.cfg?.names || { d: 'Dadi', a: 'Aarav' }, wp = o.getWorldPosition(new THREE.Vector3());
+    const n = now(), wp = o.getWorldPosition(new THREE.Vector3());
     if (hit.distance > (P.w.speed > 200 ? 420 : 330)) { this.bubble('Walk closer!', wp.add(new THREE.Vector3(0, 60, 0))); return; }
-    if (o.userData.walker) { const w = o.userData.walker as Walker; w.waveUntil = n + 2.4; this.bubble('Hi, ' + names[P.w.who] + '!', wp.add(new THREE.Vector3(0, w.h * 1.1, 0)), { bg: w.who === 'd' ? DADI : CHILD, color: '#FFF3D1' }); return; }
+    if (o.userData.walker) { const w = o.userData.walker as Walker; w.waveUntil = n + 2.4; this.bubble('Hi there!', wp.add(new THREE.Vector3(0, w.h * 1.1, 0)), { bg: w.who === 'd' ? DADI : CHILD, color: '#FFF3D1' }); return; }
     if (o.userData.say) { this.bubble(o.userData.say, wp.add(new THREE.Vector3(0, 46, 0))); return; }
     if (o.userData.plant) { o.userData.plant.pop = n; this.bubble('Mmm, flowers!', wp.add(new THREE.Vector3(0, 34, 0))); return; }
     const it = o.userData.item as Item, label = (it.d.label || it.d.kind || '').trim();

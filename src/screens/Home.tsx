@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Go } from '../App';
 import { Arrow, Cloud, Dock, SkyBirds, Sun, type Dest } from '../components';
 import { GearIcon } from '../icons';
-import { addSamplePairs, currentPlace, ensurePrompt, nextPromptAt, placeTotal, promptDone, readyToReveal, resetAll, update, useApp } from '../lib/store';
+import { addSamplePairs, awaitingPin, currentPlace, ensurePrompt, nextPromptAt, placeTotal, promptDone, readyToReveal, resetAll, update, useApp } from '../lib/store';
 
 const DAY = 86_400_000, p2 = (v: number) => String(Math.floor(v)).padStart(2, '0');
 
@@ -33,7 +33,15 @@ export function Home({ go, dest }: { go: Go; dest: (d: Dest) => void }) {
         <GearIcon size={44} />
       </button>
       <div className="home-center">
-        {ready ? (
+        {awaitingPin(s) ? (
+          <>
+            {/* the Dream House has come alive: its last prompt waits at the pin on the map */}
+            <img className="home-pin" src={import.meta.env.BASE_URL + 'dream/pin_red.png'} alt="" aria-hidden="true" draggable={false} />
+            <div className="pill">One more to go</div>
+            <div className="home-done wait">Walk to the pin on the map to unlock it</div>
+            <button className="btn-primary big" onClick={() => go({ screen: 'interior', mi: 0 })}><Arrow w={46} h={30} />Go to the map</button>
+          </>
+        ) : ready ? (
           <>
             <div className="pill">{total === 1 ? 'All drawn!' : `${total} pairs!`}</div>
             <div className="home-done">Our place is ready.</div>

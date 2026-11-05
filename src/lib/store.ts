@@ -107,6 +107,12 @@ export async function load() {
       const collab = (x: { title?: string; together?: boolean; single?: boolean }) => x.together && x.title === 'Collaborative Task' && !x.single;
       state.months.forEach(m => m.places.forEach(p => p.prompts?.forEach(q => { if (collab(q)) { q.single = true; persist(); } })));
       if (state.prompt && collab(state.prompt)) { state.prompt.single = true; if (state.scanning?.promptId === state.prompt.id) state.scanning = null; persist(); }
+      // the Dream House in progress ends with a bridge to the next map now (unlocked at the pin)
+      const m0 = state.months[0];
+      if (m0?.dream && !m0.places.some(p => p.room === 'bridge')) {
+        const def = mapDef(state.months.length - 1).places.find(p => p.room === 'bridge');
+        if (def) { m0.places.push({ id: uid(), index: m0.places.length, name: def.name, theme: def.theme, shape: def.shape, color: def.color, status: 'locked', pairs: [], total: def.prompts!.length, prompts: def.prompts, room: 'bridge' }); persist(); }
+      }
     }
   } catch (e) { console.warn('load failed', e); }
   loaded = true; emit();
@@ -145,6 +151,8 @@ let promptBusy = false;
 export async function ensurePrompt(force = false) {
   const s = state, place = currentPlace(s);
   if (!place || place.pairs.length >= placeTotal(place) || promptBusy) return;
+  // the bridge's prompt waits until they walk to the pin on the map
+  if (place.room === 'bridge' && !s.pinReached) return;
   const done = promptDone(s);
   const stillGood = s.prompt && s.prompt.placeId === place.id && (!done || Date.now() < nextPromptAt(s));
   if (!force && stillGood) return;
@@ -211,11 +219,19 @@ export function completePlace() {
     if (i < 0 || m.places[i].pairs.length < placeTotal(m.places[i])) return;
     m.places[i].status = 'done';
     if (i + 1 < m.places.length) m.places[i + 1].status = 'current';
-    else s.months.unshift(newMonth(s.months.length));
+    else { s.months.unshift(newMonth(s.months.length)); s.pinReached = false; }
     s.prompt = null;
   });
   void ensurePrompt();
 }
+
+/** They walked to the pin: the bridge becomes today's prompt, right away. */
+export function reachPin() {
+  update(s => { s.pinReached = true; s.prompt = null; s.scanning = null; });
+  void ensurePrompt(true);
+}
+/** Waiting for them to walk to the pin (the bridge is next, and not unlocked yet). */
+export const awaitingPin = (s: AppState) => { const p = currentPlace(s); return !!p && p.room === 'bridge' && !s.pinReached; };
 
 export function finishOnboarding(names: { dadi: string; child: string }, loves: { dadi: string[]; child: string[] }, faces: { dadi: string; child: string }, role: string) {
   update(s => { s.names = names; s.loves = loves; s.faces = faces; s.role = role; s.onboarded = true; });

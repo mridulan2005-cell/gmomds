@@ -40,7 +40,7 @@ export interface Place {
   /** a curated place's prompts, in order (else prompts are made from the theme and their loves) */
   prompts?: { text: string; together?: boolean; title?: string; rule?: string; single?: boolean }[];
   /** a room of the Dream House (it is built as one house, not as an island) */
-  room?: 'lr' | 'kitchen' | 'house' | 'park';
+  room?: 'lr' | 'kitchen' | 'house' | 'park' | 'bridge';
 }
 export interface Month { id: string; name: string; places: Place[]; /** the Dream House: its places are rooms of one house */ dream?: boolean }
 export interface Prompt { id: string; text: string; date: string; placeId: string; together?: boolean; title?: string; rule?: string; single?: boolean }
@@ -63,4 +63,6 @@ export interface AppState {
   /** when today's pair was finished; the next prompt arrives 24 hours later */
   doneAt?: number;
   examples?: boolean; // the finished example maps were added
+  /** the Dream House's pin was reached while walking around: its last prompt (the bridge) is unlocked */
+  pinReached?: boolean;
 }

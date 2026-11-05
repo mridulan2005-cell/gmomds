@@ -11,14 +11,14 @@ export type Dest = 'home' | 'map' | 'book';
 export function Dock({ items, go, point }: { items: Dest[]; go: (d: Dest) => void; point?: Dest }) {
   // today's prompt stands out while it is still waiting to be drawn
   const s = useApp(), todo = !!s.prompt && !promptDone(s);
-  const meta: Record<Dest, [string, ReactNode]> = { home: ["Today's prompt", <TodayIcon />], map: ['Map', <MapIcon />], book: ['Scrapbook', <BookIcon />] };
+  const meta: Record<Dest, [string, ReactNode]> = { home: ["Today's doodle", <TodayIcon />], map: ['Map', <MapIcon size={72} />], book: ['Scrapbook', <BookIcon size={64} />] };
   return (
     <div className="dock">
       {items.map((d, i) => (
         <span key={d} className="dock-slot">
           {/* a hand-drawn red arrow nudging them towards this button */}
           {point === d && <img className="dock-arrow" src={import.meta.env.BASE_URL + 'art/arrow.png'} alt="" aria-hidden="true" draggable={false} />}
-          <button className={'btn-cream' + (d === 'home' && todo ? ' cta' : '')} style={{ rotate: i ? '1deg' : '-1deg' }} onClick={() => go(d)}>{meta[d][1]}{meta[d][0]}</button>
+          <button className={'btn-cream' + (d === 'home' && todo ? ' cta' : '') + (d === 'home' ? '' : ' icon-only')} style={{ rotate: i ? '1deg' : '-1deg' }} aria-label={meta[d][0]} title={meta[d][0]} onClick={() => go(d)}>{meta[d][1]}{d === 'home' && meta[d][0]}</button>
         </span>
       ))}
     </div>
@@ -64,13 +64,13 @@ export function ScanPhoto({ d, rot }: { d: Drawing; rot: number }) {
   );
 }
 
-export function Map3D({ config, onPick, reducedMotion, pov = null, onPov }: { config: MapConfig; onPick?: (p: Pick) => void; reducedMotion: boolean; pov?: Pov; onPov?: (who: Pov) => void }) {
-  const host = useRef<HTMLDivElement>(null), scene = useRef<MapScene | null>(null), pickRef = useRef(onPick), povRef = useRef(onPov);
+export function Map3D({ config, onPick, reducedMotion, pov = null, onPov, onPin }: { config: MapConfig; onPick?: (p: Pick) => void; reducedMotion: boolean; pov?: Pov; onPov?: (who: Pov) => void; onPin?: () => void }) {
+  const host = useRef<HTMLDivElement>(null), scene = useRef<MapScene | null>(null), pickRef = useRef(onPick), povRef = useRef(onPov), pinRef = useRef(onPin);
   const [failed, setFailed] = useState(false);
-  pickRef.current = onPick; povRef.current = onPov;
+  pickRef.current = onPick; povRef.current = onPov; pinRef.current = onPin;
   useEffect(() => {
     try {
-      const s = new MapScene(host.current!); scene.current = s; s.artLoader = artUrl; s.onPick = p => pickRef.current?.(p); s.onPov = w => povRef.current?.(w);
+      const s = new MapScene(host.current!); scene.current = s; s.artLoader = artUrl; s.onPick = p => pickRef.current?.(p); s.onPov = w => povRef.current?.(w); s.onPin = () => pinRef.current?.();
     } catch (e) { console.error(e); setFailed(true); }
     return () => { scene.current?.dispose(); scene.current = null; };
   }, []);

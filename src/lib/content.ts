@@ -98,7 +98,7 @@ export const MAPS: MapKind[] = [
  */
 export interface PromptDef { text: string; together?: boolean; title?: string; rule?: string; single?: boolean }
 /** The Dream House is one place made of rooms: each place of that map is one of them. */
-export type Room = 'lr' | 'kitchen' | 'house' | 'park';
+export type Room = 'lr' | 'kitchen' | 'house' | 'park' | 'bridge';
 export interface PlaceDef { name: string; shape: 'A' | 'B' | 'C' | 'D'; color: string; theme: string; prompts?: PromptDef[]; room?: Room }
 export interface MapDef { name: string; places: PlaceDef[]; dream?: boolean }
 const pr = (text: string, o: Omit<PromptDef, 'text'> | boolean = {}): PromptDef => {
@@ -112,7 +112,8 @@ export const HOUSE_RULE = 'Colour the door brown. It has to be the darkest colou
 
 /**
  * The first maps tell a little story, with their own prompts and their own number of places:
- * a one-place Welcome Party, then the Dream House (Living Room, Kitchen, the house itself, then the Park in front of it).
+ * a one-place Welcome Party, then the Dream House (Living Room, Kitchen, the house itself, the Park in front of it,
+ * then the bridge to the next map, unlocked by walking to the pin once the map has come alive).
  * After them come the kinds of places in MAPS (four places each).
  */
 export const STORY_MAPS: MapDef[] = [
@@ -141,6 +142,9 @@ export const STORY_MAPS: MapDef[] = [
       pr('Draw something that flies in the air.', { title: 'Day Out' }),
       team('Build a bridge to the fantasy world from the park!'),
     ] },
+    { name: 'Bridge', shape: 'B', color: '#C98B5A', theme: '', room: 'bridge', prompts: [
+      pr('Build a bridge to go to your next map!', { together: true, title: 'Last prompt' }),
+    ] },
   ] },
 ];
 
@@ -149,7 +153,8 @@ export const ROOM_NOTES: Record<Room, string[]> = {
   lr: ['A wooden floor, a sofa, a rug and a lamp! The living room is starting.', 'A window! Your pet sits on the sill.', 'A shelf on the wall, with your things on top.', 'A plant and a picture frame. The living room is ready!'],
   kitchen: ['Tiles and a stove! Your food sits on the counter.', 'A kitchen window lets the light in.', 'A fridge to keep everything cold.', 'A dining table, full of your favourite dishes!'],
   house: ['We found the door! Your dream house is going up around the rooms.'],
-  park: ['Trees, a bench and a pond. The park is growing!', 'A slide and a swing to play on.', 'Butterflies, a lamppost and things flying in the air.', 'A bridge to a floating fantasy island!'],
+  park: ['Trees, a bench and a pond. The park is growing!', 'A slide and a swing to play on.', 'Butterflies, a lamppost and things flying in the air.', 'The park is ready! The whole map is coming alive.'],
+  bridge: ['A bridge grows from the pin to a floating island. What could be over there?'],
 };
 
 /** The Welcome Party's first pairs come already drawn ([Dadi's, the grandchild's]), one per prompt but the last. */
