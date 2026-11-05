@@ -22,7 +22,7 @@ export function Dock({ items, go }: { items: Dest[]; go: (d: Dest) => void }) {
 }
 
 export function Back({ label, onClick }: { label: string; onClick: () => void }) {
-  return <button className="btn-cream back" onClick={onClick}><Chevron dir="l" size={18} />{label}</button>;
+  return <button className="btn-cream back" onClick={onClick}><Chevron dir="l" size={24} />{label}</button>;
 }
 
 export function Perforation({ color }: { color?: string }) {

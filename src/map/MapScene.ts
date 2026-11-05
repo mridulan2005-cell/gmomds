@@ -433,10 +433,12 @@ export class MapScene {
     if (o.pick) { mesh.userData.pick = o.pick; this.pickables.push(mesh); }
     if (st !== 'locked') p.pairs.forEach((pr, j) => {
       const slot = slots[j % slots.length]; if (!slot) return; const [u, v] = slot;
-      ([[pr[0], -32, 0], [pr[1], 32, 10]] as const).forEach(([d, du, dv], side) => {
+      // one shared drawing (a collaborative task) stands in the middle of its spot, a little bigger
+      const one = !pr[1];
+      ([[pr[0], one ? 0 : -32, one ? 5 : 0], [pr[1], 32, 10]] as const).forEach(([d, du, dv], side) => {
         if (!d) return;
         const rise = o.fresh === j ? t0 + (side ? 1.2 : 0.35) : 0;
-        const b = this.drawing(d, o.S || 72, rise); b.position.set(u - 240 + du, 3, v - 140 + dv); G.add(b);
+        const b = this.drawing(d, (o.S || 72) * (one ? 1.25 : 1), rise); b.position.set(u - 240 + du, 3, v - 140 + dv); G.add(b);
       });
     });
     if (st === 'current' && o.q) { const q = this.sprite('?', { size: 150, color: '#8E7FD0' }); q.position.set(0, 150, 0); G.add(q); this.qs.push(q); this.huds.push(q); }
@@ -548,6 +550,12 @@ export class MapScene {
 
   private month(places: PlaceCfg[], o: { pick?: boolean; labels?: boolean; lite?: boolean; kind?: string } = {}) {
     const G = new THREE.Group(), alive = places.length > 0 && places.every(p => p.status === 'done');
+    // a map of one place (the Welcome Party) is that place itself: it fills the whole map, not one corner of a land
+    if (places.length === 1) {
+      const p = places[0], lbl = o.labels !== false && p.status === 'current' ? 'This week · ' + Math.max(0, (p.total || PAIRS) - p.pairs.length) + ' to go' : null;
+      const g = this.island(p, { label: lbl, q: true, pick: o.pick && p.status !== 'locked' ? { type: 'place', pi: 0 } : null, lockK: 1.6, walk: !!o.pick, walkH: 100, S: 76 });
+      g.scale.setScalar(2.6); G.add(g); G.userData.alive = false; return G;
+    }
     // while the map is in progress the two of them stroll on this week's place (or a finished one), and across the whole land once it is finished
     const cur = places.findIndex(p => p.status === 'current'), walkI = o.pick && !alive ? (cur >= 0 ? cur : places.findIndex(p => p.status === 'done')) : -1;
     places.forEach((p, i) => {
@@ -820,8 +828,10 @@ export class MapScene {
       def.furn.forEach(([k, u, x, z, h, y = 0, flat]) => { if (n < u) return; const s = this.standee(k, h, !!flat); s.position.set(x, flat ? 4.5 : y + (def.floor ? 4 : 0), z); G.add(s); if (isF(u - 1)) grow(s, 0.3); });
       (rm?.pairs || []).forEach((pr, j) => {
         const sl = def.slots[j]; if (!sl) return;
-        ([[pr[0], sl[0]], [pr[1], sl[1]]] as const).forEach(([d, [x, z, y]], side) => {
-          if (!d) return; const b = this.drawing(d, 54, isF(j) ? t0 + 1.2 + side * 0.6 : 0); b.position.set(x, y + (def.floor ? 4 : 0), z); G.add(b);
+        // one shared drawing (a collaborative task) stands between its two spots, a little bigger
+        const one = !pr[1], mid: [number, number, number] = [(sl[0][0] + sl[1][0]) / 2, (sl[0][1] + sl[1][1]) / 2, Math.max(sl[0][2], sl[1][2])];
+        ([[pr[0], one ? mid : sl[0]], [pr[1], sl[1]]] as const).forEach(([d, [x, z, y]], side) => {
+          if (!d) return; const b = this.drawing(d, one ? 66 : 54, isF(j) ? t0 + 1.2 + side * 0.6 : 0); b.position.set(x, y + (def.floor ? 4 : 0), z); G.add(b);
         });
       });
     });

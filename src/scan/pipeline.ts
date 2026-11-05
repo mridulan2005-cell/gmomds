@@ -970,13 +970,34 @@ function cutout(mask: Uint8Array, mw: number, mh: number, solid: Uint8Array, w: 
   const fw = w / W, fh = h / H;
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (solid[Math.min(h - 1, Math.floor((y + 0.5) * fh)) * w + Math.min(w - 1, Math.floor((x + 0.5) * fw))]) S[y * W + x] = 1;
   S = despeckle(S, W, H, 8);
-  // cut along the drawing's own outline, like scissors following it closely: the paper between a cat's legs, under
-  // its tail or between two people is cut away; only a thin white rim stays, which also keeps thin lines sturdy in 3D
+  // cut along the drawing's own outline, like scissors following it closely: the paper around it and between two
+  // separate things is cut away, blank paper within its boundaries stays; a thin white rim keeps thin lines sturdy in 3D
   const D = Math.max(W, H), seal = Math.max(2, Math.round(D * 0.02)), border = Math.max(2, Math.round(D * 0.022));
   // a body whose outline has a small gap is still a body: seal small gaps, then fill everything the lines enclose
   const sealed = erode(dilate(S, W, H, seal), W, H, seal);
   const enc = label(sealed.map(v => (v ? 0 : 1)) as Uint8Array, W, H, false), encOpen = touchesBorder(enc.lab, W, H);
   for (let i = 0; i < S.length; i++) if (sealed[i] || !encOpen.has(enc.lab[i])) S[i] = 1;
+  // blank paper within the drawing's own boundaries stays too, even where its outline is open: a spot of paper with the
+  // same drawing on three of its four sides (left, right, above, below) is inside it (under a roof, between a cat's legs).
+  // Each piece is filled on its own, so the paper between two separate things (a sun beside a house) is still cut away.
+  {
+    const pcs = label(S, W, H, true), n = pcs.sizes.length;
+    const bx0 = new Int32Array(n).fill(W), by0 = new Int32Array(n).fill(H), bx1 = new Int32Array(n).fill(-1), by1 = new Int32Array(n).fill(-1);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const l = pcs.lab[y * W + x]; if (!l) continue; if (x < bx0[l]) bx0[l] = x; if (x > bx1[l]) bx1[l] = x; if (y < by0[l]) by0[l] = y; if (y > by1[l]) by1[l] = y; }
+    const add = new Uint8Array(W * H);
+    for (let l = 1; l < n; l++) {
+      if (pcs.sizes[l] < 20) continue;
+      const x0 = bx0[l], y0 = by0[l], w = bx1[l] - x0 + 1, h = by1[l] - y0 + 1;
+      const rl = new Int32Array(h).fill(W), rr = new Int32Array(h).fill(-1), ct = new Int32Array(w).fill(H), cb = new Int32Array(w).fill(-1);
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (pcs.lab[(y0 + y) * W + x0 + x] === l) { if (x < rl[y]) rl[y] = x; if (x > rr[y]) rr[y] = x; if (y < ct[x]) ct[x] = y; if (y > cb[x]) cb[x] = y; }
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const i = (y0 + y) * W + x0 + x; if (S[i]) continue;
+        const sides = (x > rl[y] ? 1 : 0) + (x < rr[y] ? 1 : 0) + (y > ct[x] ? 1 : 0) + (y < cb[x] ? 1 : 0);
+        if (sides >= 3) add[i] = 1;
+      }
+    }
+    for (let i = 0; i < S.length; i++) if (add[i]) S[i] = 1;
+  }
   S = dilate(S, W, H, border);
   // round off the corners the grid leaves, without filling in the gaps between parts
   { const b = boxBlur(Float32Array.from(S), W, H, Math.max(1, Math.round(border / 2))); for (let i = 0; i < S.length; i++) S[i] = b[i] > 0.5 ? 1 : 0; }

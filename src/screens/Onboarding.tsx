@@ -53,7 +53,7 @@ export function Onboarding({ go }: { go: Go }) {
             <input key={step} autoFocus value={names[who]} maxLength={16} placeholder={mic.listening ? 'Listening…' : 'Your name'} style={{ color, borderBottomColor: color }}
               onChange={e => setNames({ ...names, [who]: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') next(); }} />
             <button className={'ob-mic' + (mic.listening ? ' on' : '')} aria-label="Say it" onClick={mic.toggle}>
-              <MicIcon size={50} />
+              <MicIcon size={62} />
             </button>
           </div>
           <div className="ob-micnote">{mic.error ? "Couldn't hear that. Try again or type it." : mic.listening ? 'Say your name…' : 'Type it, or tap the mic and say it'}</div>
@@ -169,8 +169,8 @@ function DrawFace({ by, subj, ink, subjColor, tint, api, onBlank, next }: {
       <div className="ob-note">Make it silly. Little {subj} will walk around all your maps.</div>
       <div className="ob-draw">
         <div className="ob-tools">
-          {toolBtn('pen', 'Pencil', <PencilIcon size={52} />)}
-          {toolBtn('eraser', 'Eraser', <EraserIcon size={52} />)}
+          {toolBtn('pen', 'Pencil', <PencilIcon size={68} />)}
+          {toolBtn('eraser', 'Eraser', <EraserIcon size={68} />)}
           <button className="ob-clear" onClick={() => { api.current.clear(); onBlank(true); setTool('pen'); }}>Start over</button>
         </div>
         <div className="face-card">

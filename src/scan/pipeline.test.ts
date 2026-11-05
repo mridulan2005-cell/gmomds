@@ -118,7 +118,7 @@ describe('scan pipeline', () => {
     expect(light).toBeGreaterThan(dark); expect(dark).toBeGreaterThan(20);
   });
 
-  it('cuts along the drawing itself: the paper between the legs goes, a flower beside it is its own piece', () => {
+  it('cuts along the drawing itself: the paper between the legs stays, a flower beside it is its own piece', () => {
     const img = canvas(640, 480, [92, 70, 55]);
     fillPoly(img, [[150, 60], [500, 80], [520, 430], [130, 410]], [246, 244, 238]);
     // a stick figure: head, body, arms, legs, and a flower beside it
@@ -130,12 +130,13 @@ describe('scan pipeline', () => {
     const v = processScan(img).vector!;
     expect(v.sil!.outer.length).toBe(2);
     expect(v.sil!.holes.length).toBe(0);
-    // the figure's head is inside the cut-out; bare paper between the legs, and between the figure and the flower, is not
+    // the figure's head and the blank paper between its legs (within its boundaries) are inside the cut-out; the paper
+    // between the figure and the flower (two separate things) is not
     const paths = v.sil!.outer.map(d => new Path2DLike(d)), inCut = (x: number, y: number) => paths.some(p => p.contains(x, y));
     // the drawing spans x 250…404, y 125…340 in the photo; its cut-out box adds a thin border all round
     const [x0, y0, x1, y1] = v.artBox!, b = 1.3, at = (x: number, y: number) => [x0 + b + ((x - 250) / 154) * (x1 - x0 - 2 * b), y0 + b + ((y - 125) / 215) * (y1 - y0 - 2 * b)] as const;
     expect(inCut(...at(300, 150))).toBe(true);
-    expect(inCut(...at(300, 330))).toBe(false);
+    expect(inCut(...at(300, 330))).toBe(true);
     expect(inCut(...at(365, 300))).toBe(false);
   });
 

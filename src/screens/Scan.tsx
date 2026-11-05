@@ -204,7 +204,7 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
             )}
           </div>
           <div className="tray-foot"><span>{shared ? `${s.names.dadi} & ${s.names.child}` : name}</span><span style={{ opacity: 0.55, color: '#3d2b22' }}>{shared ? 'Together' : who === 'dadi' ? '1 of 2' : '2 of 2'}</span></div>
-          {phase === 'done' && <div className="check"><CheckIcon size={46} /></div>}
+          {phase === 'done' && <div className="check"><CheckIcon size={58} /></div>}
         </div>
 
         <div className="scan-actions">

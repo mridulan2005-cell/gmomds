@@ -11,8 +11,12 @@ const WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven'];
 
 type MapRoute = Extract<Route, { screen: 'stack' | 'interior' | 'place' | 'reveal' }>;
 
-export function MapView({ route, go, dest }: { route: MapRoute; go: Go; dest: (d: Dest) => void }) {
+/** A map made of one place (the Welcome Party) is that place itself: going into the map opens the place. */
+const soloPlace = (s: ReturnType<typeof getState>, mi: number) => { const m = s.months[mi] || s.months[0]; return !m.dream && m.places.length === 1 ? m.places[0] : null; };
+
+export function MapView({ route: route0, go, dest }: { route: MapRoute; go: Go; dest: (d: Dest) => void }) {
   const s = useApp(), reduced = useReducedMotion();
+  const [route] = useState<MapRoute>(() => { const solo = route0.screen === 'interior' ? soloPlace(s, route0.mi) : null; return solo ? { screen: 'place', placeId: solo.id } : route0; });
   // the newest pair rises out of the island once, the first time its place is opened
   const [fresh] = useState(() => (route.screen === 'place' && s.lastFresh?.placeId === route.placeId ? s.lastFresh.slot : -1));
   useEffect(() => () => { if (route.screen === 'place') clearFresh(); }, []);
@@ -72,10 +76,11 @@ export function MapView({ route, go, dest }: { route: MapRoute; go: Go; dest: (d
         ? { mode: 'dream', key: place.id, dream: dreamCfg(s, m), focus: place.room as DreamFocus, fresh: fresh >= 0 ? { room: place.room as RoomKey | 'house', i: fresh } : null, peek }
         : { mode: 'place', key: place.id, place: placeCfg(s, place), fresh };
       if (m.dream && m.places.some(p => p.room === 'house' && p.status === 'done') && fresh < 0) peekBtn = true;
-      // the place's name stays a mystery until its last drawing goes in
-      title = done ? place.name : '???';
+      // the place's name stays a mystery until its last drawing goes in (a one-place map is named already: it is the map)
+      const solo = m.places.length === 1 && !m.dream;
+      title = solo ? m.name + (done ? '' : ' · in progress') : done ? place.name : '???';
       hint = !done && n === 0 ? `Next up in ${s.months[mi].name} · tap Today’s prompt to begin` : 'Drag to move around · two fingers to turn';
-      back = { label: 'Map', to: { screen: 'interior', mi } };
+      back = solo ? { label: 'All maps', to: { screen: 'stack' } } : { label: 'Map', to: { screen: 'interior', mi } };
       stepper = { n, total, fresh: fresh >= 0, done };
       if (done) bookBtn = place.id;
       // the last drawing has just gone in: the place reveals itself on its own
@@ -164,7 +169,7 @@ export function MapView({ route, go, dest }: { route: MapRoute; go: Go; dest: (d
       )}
       {me && other && (
         <>
-          <button className="btn-cream back" onClick={() => setPov(null)}><CloseIcon size={20} />Exit</button>
+          <button className="btn-cream back" onClick={() => setPov(null)}><CloseIcon size={26} />Exit</button>
           <div className="pov-you" style={{ background: me.color }}><span className="face" style={{ backgroundImage: `url(${me.face})` }} />You are {me.name}</div>
           <button className="pov-btn pov-switch" style={{ color: other.color }} onClick={() => setPov(pov === 'd' ? 'a' : 'd')}>
             <span className="face" style={{ backgroundImage: `url(${other.face})`, boxShadow: `inset 0 0 0 3px ${other.color}` }} />Switch to {other.name}

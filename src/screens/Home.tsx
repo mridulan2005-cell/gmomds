@@ -30,14 +30,14 @@ export function Home({ go, dest }: { go: Go; dest: (d: Dest) => void }) {
       <Cloud w={230} style={{ right: 230, top: '38%', animation: 'drift 55s ease-in-out infinite alternate-reverse' }} />
       <Cloud w={150} style={{ left: 110, bottom: 200, animation: 'drift 48s ease-in-out infinite alternate' }} />
       <button className="gear" aria-label="Settings" onClick={() => setSettings(true)}>
-        <GearIcon size={32} />
+        <GearIcon size={44} />
       </button>
       <div className="home-center">
         {ready ? (
           <>
             <div className="pill">{total === 1 ? 'All drawn!' : `${total} pairs!`}</div>
             <div className="home-done">Our place is ready.</div>
-            <button className="btn-primary big" onClick={() => go({ screen: 'reveal' })}><Arrow w={46} h={30} />See what we made</button>
+            <button className="btn-primary big" onClick={() => go({ screen: 'reveal' })}><Arrow w={56} h={37} />See what we made</button>
           </>
         ) : done ? (
           <>
@@ -110,37 +110,11 @@ function Settings({ close }: { close: () => void }) {
   );
 }
 
-// The two of them at the table: each drawing on their own sheet, or (on a together day) on one big sheet.
-const DadiFace = ({ x }: { x: number }) => (
-  <svg width="96" height="96" viewBox="0 0 96 96" fill="none" strokeLinecap="round" style={{ position: 'absolute', left: x, top: 2 }}><circle cx="48" cy="20" r="13" fill="#C9C4BC" /><circle cx="48" cy="54" r="36" fill="#C98B5A" /><path d="M14 48 Q16 18 48 18 Q80 18 82 48 Q70 32 48 32 Q26 32 14 48 Z" fill="#C9C4BC" /><circle cx="36" cy="54" r="9" stroke="#3d2b22" strokeWidth="3" /><circle cx="60" cy="54" r="9" stroke="#3d2b22" strokeWidth="3" /><path d="M45 54 H51" stroke="#3d2b22" strokeWidth="3" /><path d="M38 72 Q48 79 58 72" stroke="#3d2b22" strokeWidth="3" /></svg>
-);
-const ChildFace = ({ x }: { x: number }) => (
-  <svg width="66" height="66" viewBox="0 0 66 66" fill="none" strokeLinecap="round" style={{ position: 'absolute', left: x, top: 48 }}><circle cx="33" cy="35" r="29" fill="#C98B5A" /><path d="M4 32 Q6 6 33 6 Q60 6 62 32 Q50 20 33 20 Q16 20 4 32 Z" fill="#3d2b22" /><circle cx="24" cy="36" r="3" fill="#3d2b22" /><circle cx="42" cy="36" r="3" fill="#3d2b22" /><path d="M25 47 Q33 53 41 47" stroke="#3d2b22" strokeWidth="3" /></svg>
-);
+// The two of them at the table: each drawing on their own sheet, or (on a together day, a collaborative task) on one sheet.
+const ART = import.meta.env.BASE_URL + 'art/';
 function SoloArt() {
-  return (
-    <div className="home-art" aria-hidden="true">
-      <svg width="420" height="230" viewBox="0 0 420 230" fill="none" strokeLinecap="round" style={{ position: 'absolute', inset: 0 }}>
-        <path d="M70 162 Q70 94 125 94 Q180 94 180 162 Z" fill="#2F5FD0" /><path d="M250 162 Q250 114 290 114 Q330 114 330 162 Z" fill="#E4572E" />
-        <rect x="0" y="150" width="420" height="80" rx="8" fill="#DDB98F" />
-        <g transform="rotate(-3 110 190)"><rect x="40" y="166" width="140" height="50" fill="#FFFFFF" stroke="#3d2b22" strokeWidth="1.5" /><path d="M58 196 Q76 178 92 196 T128 192" stroke="#2F5FD0" strokeWidth="4" /></g>
-        <g transform="rotate(2 310 190)"><rect x="240" y="166" width="140" height="50" fill="#FFFFFF" stroke="#3d2b22" strokeWidth="1.5" /><path d="M262 198 Q282 176 300 196 T344 190" stroke="#E4572E" strokeWidth="4" /></g>
-        <path d="M160 122 Q176 154 150 190" stroke="#C98B5A" strokeWidth="14" /><path d="M272 130 Q258 162 290 192" stroke="#C98B5A" strokeWidth="12" />
-      </svg>
-      <DadiFace x={77} /><ChildFace x={257} />
-    </div>
-  );
+  return <div className="home-art" aria-hidden="true"><img src={ART + 'separate.png'} alt="" draggable={false} /></div>;
 }
 function TogetherArt() {
-  return (
-    <div className="home-art" aria-hidden="true">
-      <svg width="420" height="230" viewBox="0 0 420 230" fill="none" strokeLinecap="round" style={{ position: 'absolute', inset: 0 }}>
-        <path d="M108 162 Q108 94 163 94 Q218 94 218 162 Z" fill="#2F5FD0" /><path d="M228 162 Q228 114 268 114 Q308 114 308 162 Z" fill="#E4572E" />
-        <rect x="0" y="150" width="420" height="80" rx="8" fill="#DDB98F" />
-        <g transform="rotate(-1 210 190)"><rect x="100" y="162" width="220" height="56" fill="#FFFFFF" stroke="#3d2b22" strokeWidth="1.5" /><path d="M120 200 Q140 178 160 198 T206 192" stroke="#2F5FD0" strokeWidth="4" /><path d="M208 192 Q230 176 250 198 T300 190" stroke="#E4572E" strokeWidth="4" /></g>
-        <path d="M200 124 Q216 156 194 194" stroke="#C98B5A" strokeWidth="14" /><path d="M248 130 Q234 162 224 194" stroke="#C98B5A" strokeWidth="12" />
-      </svg>
-      <DadiFace x={115} /><ChildFace x={235} />
-    </div>
-  );
+  return <div className="home-art" aria-hidden="true"><img src={ART + 'together.png'} alt="" draggable={false} /></div>;
 }

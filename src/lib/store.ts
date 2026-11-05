@@ -87,6 +87,10 @@ export async function load() {
       if (state.names.dadi === 'Dadi' && state.names.child === 'Anu') { state.names = { dadi: 'Sunita', child: 'Aarav' }; persist(); }
       // the Dream House is now built as one house with rooms
       state.months.forEach((m, i) => { if (!m.dream && m.name === 'Dream House') { upgradeDream(m, state.months.length - 1 - i); if (i === 0) state.prompt = null; persist(); } });
+      // collaborative tasks are one shared drawing now (they both work on it), scanned once
+      const collab = (x: { title?: string; together?: boolean; single?: boolean }) => x.together && x.title === 'Collaborative Task' && !x.single;
+      state.months.forEach(m => m.places.forEach(p => p.prompts?.forEach(q => { if (collab(q)) { q.single = true; persist(); } })));
+      if (state.prompt && collab(state.prompt)) { state.prompt.single = true; if (state.scanning?.promptId === state.prompt.id) state.scanning = null; persist(); }
     }
   } catch (e) { console.warn('load failed', e); }
   loaded = true; emit();

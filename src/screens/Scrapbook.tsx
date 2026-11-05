@@ -59,7 +59,14 @@ function PageView({ p, side, num, anim, onClick }: { p: PageData; side: 'l' | 'r
                   <div className="sb-text"><span>{pair.prompt}</span></div>
                 </div>
                 <div className="sb-pair">
-                  {([['dadi', DADI, -4, -3], ['child', CHILD, 3, 4]] as const).map(([who, c, r, tr]) => {
+                  {pair.single ? (
+                    // one shared drawing: kept once, as theirs together
+                    <div className="sb-snap" style={{ rotate: '-1.5deg' }}>
+                      <div className="sb-tape small" style={{ background: tape('#F26A2E'), rotate: '-2deg' }} />
+                      <div className="sb-snap-img">{s.drawings[pair.dadi] && <Snap d={s.drawings[pair.dadi]} />}</div>
+                      <div className="sb-who small" style={{ color: '#3d2b22' }}>{s.names.dadi} &amp; {s.names.child}</div>
+                    </div>
+                  ) : ([['dadi', DADI, -4, -3], ['child', CHILD, 3, 4]] as const).map(([who, c, r, tr]) => {
                     const d = s.drawings[pair[who]];
                     return (
                       <div key={who} className="sb-snap" style={{ rotate: r + 'deg' }}>

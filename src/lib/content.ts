@@ -105,7 +105,8 @@ const pr = (text: string, o: Omit<PromptDef, 'text'> | boolean = {}): PromptDef 
   const x = typeof o === 'boolean' ? { together: o } : o;
   return Object.fromEntries(Object.entries({ text, ...x }).filter(([, v]) => v !== undefined && v !== '' && v !== false)) as unknown as PromptDef;
 };
-const team = (text: string) => pr(text, { together: true, title: 'Collaborative Task' });
+/** A collaborative task: they both work on one drawing, so it is scanned once (like the dream house). */
+const team = (text: string) => pr(text, { together: true, single: true, title: 'Collaborative Task' });
 /** The dream house bonus: one shared drawing, its door coloured brown so it can be found. */
 export const HOUSE_RULE = 'Colour the door brown. It has to be the darkest colour in your drawing.';
 
