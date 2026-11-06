@@ -32,7 +32,7 @@
 
 **F3. Aarav says his name**
 - DRAW: Aarav leans into the iPad and holds the mic button. A small speech bubble: "AARAV!"
-- SCREEN: "Hi! What's your name?" The input shows "Listening…", then fills with **Aarav** in orange.
+- SCREEN: "Hi kiddo! What's your name?" The input shows "Listening…", then fills with **Aarav** in orange.
 - SHOWS: Name by voice (or typed). The grandchild starts the onboarding.
 
 **F4. What Aarav loves**

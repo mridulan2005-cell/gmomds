@@ -17,6 +17,7 @@ const UI: Record<string, string> = {
   'Next': 'आगे',
   // onboarding
   'Hi!': 'नमस्ते!',
+  'Hi kiddo!': 'नमस्ते बच्चे!',
   "What's your name?": 'आपका नाम क्या है?',
   "{role}, what's your name?": '{role}, आपका नाम क्या है?',
   'Your name': 'आपका नाम',
@@ -171,7 +172,7 @@ const UI: Record<string, string> = {
 
   // ---- what the voice says on each screen ----
   'Namaste! Which language are you comfortable in? Pick one, then tap Next.': 'नमस्ते! आप किस भाषा में सहज हैं? एक भाषा चुनिए, फिर आगे दबाइए।',
-  "Hi! What's your name? Type it, or tap the mic and say it.": 'नमस्ते! आपका नाम क्या है? लिखिए, या माइक दबाकर बोलिए।',
+  "Hi kiddo! What's your name? Type it, or tap the mic and say it.": 'नमस्ते बच्चे! आपका नाम क्या है? लिखिए, या माइक दबाकर बोलिए।',
   "Namaste, {role}! What's your name? Type it, or tap the mic and say it.": 'नमस्ते {role}! आपका नाम क्या है? लिखिए, या माइक दबाकर बोलिए।',
   "{name}, what do you love? Tap everything you like, then tap That's me.": '{name}, आपको क्या-क्या पसंद है? जो भी अच्छा लगे उसे छुइए, फिर हाँ, यही दबाइए।',
   "{name}, who are you playing with? Pick one, then tap That's who.": '{name}, आप किसके साथ खेल रहे हैं? एक चुनिए, फिर यही हैं दबाइए।',

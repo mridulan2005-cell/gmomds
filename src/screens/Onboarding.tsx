@@ -34,7 +34,7 @@ export function Onboarding({ go }: { go: Go }) {
   const mic = useMic(x => setNames(n => ({ ...n, [step === 0 ? 'child' : 'dadi']: x })), t.lang === 'hi' ? 'hi-IN' : 'en-IN');
   // the voice says what to do on each step
   const roleT = t(role), drawBy = step === 5 ? elderName : childName, drawSubj = step === 5 ? childName : elderName;
-  useSay(!langDone ? null : step === 0 ? t("Hi! What's your name? Type it, or tap the mic and say it.")
+  useSay(!langDone ? null : step === 0 ? t("Hi kiddo! What's your name? Type it, or tap the mic and say it.")
     : step === 3 ? t("Namaste, {role}! What's your name? Type it, or tap the mic and say it.", { role: roleT })
     : picking ? t("{name}, what do you love? Tap everything you like, then tap That's me.", { name: who === 'dadi' ? elderName : childName })
     : step === 2 ? t("{name}, who are you playing with? Pick one, then tap That's who.", { name: childName })
@@ -61,7 +61,7 @@ export function Onboarding({ go }: { go: Go }) {
       <div className="ob-sub">{t('Before we begin · {n} of {total}', { n: step + 2, total: 8 })}</div>
       {askName && (
         <>
-          <div className="ob-title">{step === 0 ? <><span style={{ color }}>{t('Hi!')}</span> {t("What's your name?")}</> : t.x("{role}, what's your name?", { role: <span style={{ color }}>{roleT}</span> })}</div>
+          <div className="ob-title">{step === 0 ? <><span style={{ color }}>{t('Hi kiddo!')}</span> {t("What's your name?")}</> : t.x("{role}, what's your name?", { role: <span style={{ color }}>{roleT}</span> })}</div>
           <div className="ob-name">
             <input key={step} autoFocus value={names[who]} maxLength={16} placeholder={mic.listening ? t('Listening…') : t('Your name')} style={{ color, borderBottomColor: color }}
               onChange={e => setNames({ ...names, [who]: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') next(); }} />
