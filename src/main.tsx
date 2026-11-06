@@ -9,6 +9,10 @@ document.addEventListener('gesturestart', e => e.preventDefault());
 let lastTouch = 0;
 document.addEventListener('touchend', e => { const n = Date.now(); if (n - lastTouch < 320 && !(e.target as HTMLElement).closest('input')) e.preventDefault(); lastTouch = n; }, { passive: false });
 
+// Play the app's sounds even with the iPad/iPhone silent switch on (Safari 16.4+): "playback" is the media
+// category, which the ringer switch does not silence. Without it iOS mutes Web Audio on silent.
+try { const s = (navigator as unknown as { audioSession?: { type: string } }).audioSession; if (s) s.type = 'playback'; } catch { /* unsupported */ }
+
 // A soft tap sound on every button press. Web Audio keeps it instant and lets taps overlap.
 let tapCtx: AudioContext | null = null;
 let tapBuf: AudioBuffer | null = null;
