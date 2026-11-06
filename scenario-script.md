@@ -42,7 +42,7 @@
 
 **F5. Who are you playing with?**
 - DRAW: Aarav points at Dadi, then taps **Grandmother**.
-- SCREEN: "Aarav, who are you playing with?" Grandmother / Grandfather / Mom / Dad.
+- SCREEN: "Aarav, who are you playing with?" Grandmother / Grandfather.
 - SHOWS: The app works with any grown-up, not just Dadi.
 
 **F6. Dadi's turn**

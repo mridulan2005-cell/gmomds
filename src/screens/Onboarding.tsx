@@ -8,7 +8,7 @@ import { LANG_OPTIONS, useT } from '../lib/i18n';
 import { useSay } from '../lib/voice';
 import type { PersonId } from '../lib/types';
 
-const ROLES = ['Grandmother', 'Grandfather', 'Mom', 'Dad'];
+const ROLES = ['Grandmother', 'Grandfather'];
 type Tool = 'pen' | 'eraser';
 
 // First the language they are comfortable in; then seven steps, the grandchild first: their name, what they love, who they are playing with;
@@ -22,7 +22,7 @@ export function Onboarding({ go }: { go: Go }) {
   const [picks, setPicks] = useState<{ dadi: string[]; child: string[] }>(() => { const ok = (l: string[]) => l.filter(k => LOVE_ICON[k]); return { dadi: ok(init.loves.dadi), child: ok(init.loves.child) }; });
   // a first run starts with empty names; running it again keeps the ones they gave
   const [names, setNames] = useState(init.onboarded ? init.names : { dadi: '', child: '' });
-  const [role, setRole] = useState(init.role || 'Grandmother');
+  const [role, setRole] = useState<string>(init.role && ROLES.includes(init.role) ? init.role : 'Grandmother');
   const [faces, setFaces] = useState(init.faces);
   const childName = names.child.trim() || 'Aarav', elderName = names.dadi.trim() || role;
   const askName = step === 0 || step === 3, picking = step === 1 || step === 4, drawing = step === 5 || step === 6;
