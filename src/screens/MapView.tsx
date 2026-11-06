@@ -204,9 +204,6 @@ export function MapView({ route: route0, go, dest }: { route: MapRoute; go: Go; 
       {!pov && title && <div className="map-title"><div className="t">{title}</div>{hint && <div className="h">{hint}</div>}</div>}
       {note && !pov && <div className="build-note" role="status">{note}</div>}
       {lockMsg && !pov && !note && <div key={lockMsg.k} className="build-note lock-note" role="status">{lockMsg.text}</div>}
-      {povAvail && !pov && !pinCard && (
-        <button className={'play-btn' + (findPin ? ' glow' : '')} onClick={() => setPov('p')}><PlayGlyph />{t('Play')}</button>
-      )}
       {pov && (
         <>
           <button className="btn-cream back" onClick={() => setPov(null)}><CloseIcon size={26} />{t('Exit')}</button>
@@ -227,21 +224,27 @@ export function MapView({ route: route0, go, dest }: { route: MapRoute; go: Go; 
           </div>
         </div>
       )}
-      {stepper && !pov && (
-        <div className="stepper-card">
-          <div style={{ display: 'flex', alignItems: 'center' }}>
-            {Array.from({ length: stepper.total }, (_, k) => {
-              const filled = k < stepper!.n, newest = stepper!.fresh && k === stepper!.n - 1;
-              return (
-                <div key={k} style={{ display: 'flex', alignItems: 'center' }}>
-                  {k > 0 && <div className="step-line" />}
-                  <div className="step-dot" style={{ background: newest ? SUN : filled ? ORANGE : 'transparent', boxShadow: `inset 0 0 0 3px ${filled ? 'transparent' : 'rgba(61,43,34,.3)'}` }} />
-                </div>
-              );
-            })}
+      {/* right below the map: Play (once walking around is open) and how far along this place is */}
+      {!pov && (stepper || (povAvail && !pinCard)) && (
+        <div className="below-map">
+          {povAvail && !pinCard && <button className={'play-btn' + (findPin ? ' glow' : '')} onClick={() => setPov('p')}><PlayGlyph />{t('Play')}</button>}
+          {stepper && (
+            <div className="stepper-card">
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              {Array.from({ length: stepper.total }, (_, k) => {
+                const filled = k < stepper!.n, newest = stepper!.fresh && k === stepper!.n - 1;
+                return (
+                  <div key={k} style={{ display: 'flex', alignItems: 'center' }}>
+                    {k > 0 && <div className="step-line" />}
+                    <div className="step-dot" style={{ background: newest ? SUN : filled ? ORANGE : 'transparent', boxShadow: `inset 0 0 0 3px ${filled ? 'transparent' : 'rgba(61,43,34,.3)'}` }} />
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{stepper.done ? stepper.total : Math.min(stepper.n, stepper.total)}/{stepper.total}</div>
+            {bookBtn && <button className="btn-primary" style={{ height: 46, padding: '0 18px', fontSize: 17, boxShadow: '0 5px 0 #B9481B', rotate: '0deg' }} onClick={() => go({ screen: 'book', placeId: bookBtn! })}>{t('In our scrapbook')}</button>}
           </div>
-          <div style={{ fontSize: 22, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{stepper.done ? stepper.total : Math.min(stepper.n, stepper.total)}/{stepper.total}</div>
-          {bookBtn && <button className="btn-primary" style={{ height: 46, padding: '0 18px', fontSize: 17, boxShadow: '0 5px 0 #B9481B', rotate: '0deg' }} onClick={() => go({ screen: 'book', placeId: bookBtn! })}>{t('In our scrapbook')}</button>}
+          )}
         </div>
       )}
       {peekBtn && !pov && !action && <button className="btn-cream peek-btn" onClick={() => setPeek(v => !v)}>{t(peek ? 'Put the roof back' : 'Look inside')}</button>}
