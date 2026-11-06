@@ -1198,16 +1198,21 @@ function cutout(mask: Uint8Array, mw: number, mh: number, solid: Uint8Array, w: 
   // colour is measured against the paper's own tint: pale crayon scribbled over white paper is only a little coloured,
   // but it is red, green or blue all the same, and keeps that colour (a little brighter, as it looked on the paper)
   const satOf = (i: number) => { const r = P[i * 3], g = P[i * 3 + 1], b = P[i * 3 + 2], mx = Math.max(r, g, b); return mx ? (mx - Math.min(r, g, b)) / mx : 0; };
-  const ps: number[] = []; for (let i = 0; i < dark.length; i += 3) if (dark[i] <= grain) ps.push(satOf(i));
+  // (the paper's tint is measured where nothing is drawn: pale crayon hatching would otherwise count as "paper")
+  const inkAt = (i: number) => { const x = i % AW, y = (i / AW) | 0, cx = Math.min(colour.width - 1, Math.floor(bx0 * cs + ((x + 0.5) / AW) * regW)), cy = Math.min(colour.height - 1, Math.floor(by0 * cs + ((y + 0.5) / AH) * regH)); return mw === colour.width && mh === colour.height ? mask[cy * mw + cx] : 0; };
+  const ps: number[] = []; for (let i = 0; i < dark.length; i += 3) if (dark[i] <= grain && !inkAt(i)) ps.push(satOf(i));
   ps.sort((u, v) => u - v);
-  const tint = ps.length ? ps[Math.floor(ps.length * 0.9)] : 0.1, from = Math.min(0.25, tint + 0.04);
+  const tint = ps.length ? ps[Math.floor(ps.length * 0.9)] : 0.1, from = clamp(tint + 0.03, 0.05, 0.25);
   for (let i = 0; i < dark.length; i++) {
     const o = i * 4, r = P[i * 3], g = P[i * 3 + 1], b = P[i * 3 + 2], sat = satOf(i);
     const v = 255 * (1 - clamp((dark[i] - grain) * deepen, 0, 0.75)); // pencil grey, or white paper
     if (sat < from) { art[o] = art[o + 1] = art[o + 2] = v; }
     else {
-      const t = clamp((sat - from) / 0.15, 0, 1), lum = 0.299 * r + 0.587 * g + 0.114 * b, rich = (c: number) => Math.min(255, Math.max(0, lum + (c - lum) * 1.35));
-      art[o] = v + (rich(r) - v) * t; art[o + 1] = v + (rich(g) - v) * t; art[o + 2] = v + (rich(b) - v) * t; // crayon keeps its colour
+      // (pale crayon is lifted to a colour you can see: as it looked on the paper, not washed out by the photo)
+      const t = clamp((sat - from) / 0.06, 0, 1), lum = 0.299 * r + 0.587 * g + 0.114 * b, boost = clamp(0.32 / Math.max(0.01, sat), 1.35, 3.2), rich = (c: number) => Math.min(255, Math.max(0, lum + (c - lum) * boost));
+      // crayon keeps its colour and its own lightness on white paper (not deepened like pencil, which turns it grey)
+      const up = 1 / Math.max(0.3, paperL[i]), c = (x: number) => Math.min(255, rich(x) * up);
+      art[o] = v + (c(r) - v) * t; art[o + 1] = v + (c(g) - v) * t; art[o + 2] = v + (c(b) - v) * t;
     }
     art[o + 3] = 255;
   }
@@ -1233,11 +1238,39 @@ export function processScan(photo: Img, opts: { minSharpness?: number } = {}): S
   return r;
 }
 
+/**
+ * The inside of the drawing sheet's frame with the light taken out: the paper becomes plain white everywhere (the
+ * light's colour and any shading across the sheet are removed), and pencil and crayon keep their own darkness and colour.
+ */
+function flattenPaper(img: Img): Img {
+  // each colour on its own, against the paper right around it: a sheet warm on one side and cool on the other (lamp
+  // and window light) still comes out the same white everywhere, so pale crayon stands out from it
+  const { width: w, height: h, data } = img, n = w * h, out = new Uint8ClampedArray(data.length);
+  for (let c = 0; c < 3; c++) {
+    const ch = new Float32Array(n); for (let i = 0; i < n; i++) ch[i] = data[i * 4 + c] / 255;
+    const bg = background(ch, w, h);
+    for (let i = 0; i < n; i++) out[i * 4 + c] = Math.min(255, (ch[i] / Math.max(0.15, bg[i])) * 255);
+  }
+  for (let i = 0; i < n; i++) out[i * 4 + 3] = 255;
+  return { width: w, height: h, data: out };
+}
+/** Pale crayon on the flattened sheet: tinted against the now-white paper, even when it is hardly darker than it. */
+function crayonMask(flat: Img): Uint8Array {
+  const { width: w, height: h, data } = flat, n = w * h, sat = new Float32Array(n), m = new Uint8Array(n);
+  for (let i = 0; i < n; i++) sat[i] = saturation(data, i * 4);
+  const ss = Float32Array.from(sat.filter((_, i) => i % 7 === 0)).sort(), paper = ss[Math.floor(ss.length * 0.6)] || 0;
+  const cut = clamp(paper + 0.05, 0.06, 0.2);
+  for (let i = 0, j = 0; i < n; i++, j += 4) if (sat[i] > cut && Math.max(data[j], data[j + 1], data[j + 2]) > 40) m[i] = 1;
+  return despeckle(m, w, h, Math.max(6, Math.round(n * 0.00003)));
+}
+
 /** inside: the inside of the drawing sheet's frame, already flattened (then quad is only where the sheet is). */
 function scanSheet(src: Img, quad: Quad | null, opts: { minSharpness?: number }, whole = false, fills = false, inside?: Img): ScanResult {
-  const paper = inside ?? (quad ? warp(src, quad, 1000) : resize(src, 1000));
+  // (on the drawing sheet, the frame's inside is evened out to white paper first: only the drawing differs from it)
+  const paper = inside ? flattenPaper(inside) : quad ? warp(src, quad, 1000) : resize(src, 1000);
   const w = paper.width, h = paper.height;
   let m: Uint8Array = inkMask(paper, inside ? 0.008 : quad ? 0.025 : 0.006);
+  if (inside) { const cr = crayonMask(paper), mg = Math.round(Math.min(w, h) * 0.008); for (let y = mg; y < h - mg; y++) for (let x = mg; x < w - mg; x++) if (cr[y * w + x]) m[y * w + x] = 1; }
   // only marks on the sheet: hands, their shadows and the background are not part of the drawing
   const area = inside ? handsAway(paper) : drawingArea(paper, !!quad || fills, fills);
   for (let i = 0; i < m.length; i++) if (!area[i]) m[i] = 0;

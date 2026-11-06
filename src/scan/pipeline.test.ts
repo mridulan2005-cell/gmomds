@@ -375,6 +375,12 @@ describe('drawing sheet', () => {
     expect(r).toMatchObject({ ok: true });
     // the gift and its bow, not the frame (the frame is ~390 px across here)
     expect(r.crop!.width).toBeLessThan(370); expect(r.crop!.height).toBeGreaterThan(r.crop!.width);
+    // all of the pale crayon is the drawing (not just its darkest strokes), and the sticker keeps it pink, not grey
+    let ink = 0; for (let q = 3; q < r.ink!.data.length; q += 4) if (r.ink!.data[q]) ink++;
+    expect(ink / (r.ink!.width * r.ink!.height)).toBeGreaterThan(0.2);
+    const a = r.vector!.art!; let red = 0, green = 0;
+    for (let y = Math.round(a.height * 0.35); y < a.height * 0.85; y++) for (const x of [Math.round(a.width * 0.2), Math.round(a.width * 0.8)]) { const j = (y * a.width + x) * 4; red += a.data[j]; green += a.data[j + 1]; }
+    expect(red - green).toBeGreaterThan(8 * Math.round(a.height * 0.5) * 2);
   });
   it('the held sheet at the live camera size: found by its squares straight away, no "hands away"', () => {
     const live = resize(photoFile('gift-sheet-held.png'), 640), sh = detectSheet(live);
