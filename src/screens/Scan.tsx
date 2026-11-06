@@ -72,11 +72,12 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
   }, []);
   useEffect(() => { alive.current = true; void startCamera(); return () => { alive.current = false; stopCamera(); }; }, [startCamera]);
 
-  // auto-capture: a sheet is found and held still for about a second
+  // auto-capture: a sheet is found and held still for about a second (the drawing sheet, found by its corner
+  // squares, is sure enough after a moment, and a sheet held in the hands may sway a little)
   useEffect(() => {
     const t = setInterval(async () => {
       if (phaseRef.current !== 'camera' || busy.current || !video.current) return;
-      const f = grab(video.current, 320, flipRef.current); if (!f) return;
+      const f = grab(video.current, 640, flipRef.current); if (!f) return; // (big enough to see the sheet's corner squares)
       busy.current = true;
       const th = thumb(f), w = f.width, h = f.height;
       const sh = await detect(f).catch(() => null), q = sh?.quad || null;
@@ -88,8 +89,8 @@ export function Scan({ who, go, replace }: { who: 'dadi' | 'child'; go: Go; repl
       const H = hist.current; H.push(q); if (H.length > 4) H.shift();
       const diag = Math.hypot(w, h), moved = H.length > 1 ? Math.max(...H.slice(1).map((p, i) => Math.max(...p.map((c, k) => Math.hypot(c[0] - H[i][k][0], c[1] - H[i][k][1]))))) : 1e9;
       const isNew = !lastCapture || thumbDiff(th, lastCapture) > 0.045;
-      const n = moved < diag * 0.02 && isNew ? H.length : 0; setSteady(n);
-      if (n >= 4) void captureRef.current('camera');
+      const need = sh?.sure ? 2 : 4, n = moved < diag * (sh?.sure ? 0.035 : 0.02) && isNew ? H.length : 0; setSteady(Math.round((n * 4) / need));
+      if (n >= need) void captureRef.current('camera');
     }, 280);
     return () => clearInterval(t);
   }, []);

@@ -447,7 +447,8 @@ function touchesBorder(lab: Int32Array, w: number, h: number): Set<number> {
   s.delete(0); return s;
 }
 
-export interface Sheet { quad: Quad | null; hands: boolean }
+/** sure: found by the drawing sheet's corner squares (not guessed from the paper's edges). */
+export interface Sheet { quad: Quad | null; hands: boolean; sure?: boolean }
 
 /**
  * Find the sheet of paper (four corners) and whether hands are over it. Hands, a lap, a white wall or a busy table
@@ -455,7 +456,7 @@ export interface Sheet { quad: Quad | null; hands: boolean }
  * quad is null when no clear sheet is found, for example when the paper fills the whole view.
  */
 export function detectSheet(img: Img): Sheet {
-  const f = findSheet(img, 256), { c } = f, { w, h } = c, t = findTemplate(img, 480);
+  const f = findSheet(img, 256), { c } = f, { w, h } = c, t = findTemplate(img, 640); // (the squares are small: below ~600 px they blur away)
   // the drawing sheet's corner squares, when they are in view, say where the sheet is more surely than its edges
   const poly = t ? t.page.map(([x, y]) => [(x * w) / img.width, (y * h) / img.height] as Pt) : f.q;
   let quad: Quad | null = null;
@@ -473,7 +474,7 @@ export function detectSheet(img: Img): Sheet {
   }
   const innerArea = polyArea(inner); let hands = false;
   for (let l = 1; l < sk.sizes.length; l++) if (inside[l] > innerArea * 0.004 && (edge.has(l) || outsideN[l] > 0)) hands = true;
-  return { quad, hands };
+  return { quad, hands, sure: !!t };
 }
 
 /** The Canny edges the sheet finder sees (for tools/paper-lab.html). */

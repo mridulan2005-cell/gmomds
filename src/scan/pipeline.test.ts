@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { inflateSync } from 'node:zlib';
-import { detectPaper, detectSheet, findTemplate, homography, processScan, type Img, type Pt } from './pipeline';
+import { detectPaper, detectSheet, findTemplate, homography, processScan, resize, type Img, type Pt } from './pipeline';
 
 // A tiny rasteriser for synthetic "photos".
 function canvas(w: number, h: number, rgb: [number, number, number]): Img {
@@ -375,6 +375,10 @@ describe('drawing sheet', () => {
     expect(r).toMatchObject({ ok: true });
     // the gift and its bow, not the frame (the frame is ~390 px across here)
     expect(r.crop!.width).toBeLessThan(370); expect(r.crop!.height).toBeGreaterThan(r.crop!.width);
+  });
+  it('the held sheet at the live camera size: found by its squares straight away, no "hands away"', () => {
+    const live = resize(photoFile('gift-sheet-held.png'), 640), sh = detectSheet(live);
+    expect(sh.sure).toBe(true); expect(sh.hands).toBe(false); expect(sh.quad).not.toBeNull();
   });
   it('plain paper is not mistaken for the drawing sheet', () => {
     expect(findTemplate(photo().img)).toBeNull();
