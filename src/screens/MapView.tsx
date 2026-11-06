@@ -162,6 +162,14 @@ export function MapView({ route: route0, go, dest }: { route: MapRoute; go: Go; 
   }, [freshLast]);
 
   const win = route.screen === 'reveal' && !!revealPlace && stage >= 2;
+  // the "level complete" fanfare, once each time the win card pops up
+  useEffect(() => {
+    if (!win) return;
+    const a = new Audio(import.meta.env.BASE_URL + 'level-complete.mp3');
+    a.volume = 0.8;
+    a.play().catch(() => {});
+    return () => { a.pause(); };
+  }, [win]);
   const winName0 = revealPlace && getState().months[0].places.at(-1)?.id === revealPlace.id && getState().months[0].places.length > 1 ? getState().months[0].name : revealPlace?.name;
   const winName = winName0 ? t(winName0) : '';
   if (win && winName) { voice = t(revealPlace!.room === 'house' ? 'Yay! {name} is built! Tap the orange button to go on.' : 'Yay! {name} is complete! Tap the orange button to go on.', { name: winName }); excited = true; }
